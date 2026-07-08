@@ -1,0 +1,24 @@
+client_id = "df6be76d6fba2b85674e3865c7db11dd"
+name = "trilhos-model-export"
+application_url = "https://example.com"
+embedded = true
+
+[access_scopes]
+scopes = "read_orders,write_orders"
+
+[webhooks]
+api_version = "2025-10"
+
+[[webhooks.subscriptions]]
+uri = "/webhooks/app/uninstalled"
+topics = ["app/uninstalled"]
+
+[[webhooks.subscriptions]]
+uri = "/webhooks/app/scopes_update"
+topics = ["app/scopes_update"]
+
+[auth]
+redirect_urls = ["https://example.com/api/auth"]
+
+[build]
+automatically_update_urls_on_dev = true
