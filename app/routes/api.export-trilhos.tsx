@@ -3,6 +3,19 @@ import ExcelJS from "exceljs";
 import path from "path";
 import fs from "fs/promises";
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
+export async function options() {
+  return new Response(null, {
+    status: 204,
+    headers: corsHeaders,
+  });
+}
+
 export async function action({ request }: ActionFunctionArgs) {
   const data = await request.json();
 
@@ -43,8 +56,16 @@ export async function action({ request }: ActionFunctionArgs) {
 
   await fs.writeFile(filePath, Buffer.from(buffer));
 
-  return Response.json({
-    success: true,
-    downloadUrl: `/exports/${filename}`,
-  });
+  return new Response(
+    JSON.stringify({
+      success: true,
+      downloadUrl: `https://trilhos-model-export.onrender.com/exports/${filename}`,
+    }),
+    {
+      headers: {
+        "Content-Type": "application/json",
+        ...corsHeaders,
+      },
+    }
+  );
 }
