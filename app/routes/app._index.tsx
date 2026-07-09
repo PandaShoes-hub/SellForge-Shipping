@@ -14,28 +14,33 @@ type Order = {
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin } = await authenticate.admin(request);
 
-  const response = await admin.graphql(`
-    #graphql
-    query {
-      orders(first: 50, query: "fulfillment_status:unfulfilled") {
-        edges {
-          node {
-            id
+const response = await admin.graphql(`
+  #graphql
+  query {
+    orders(
+      first: 50,
+      sortKey: CREATED_AT,
+      reverse: true,
+      query: "status:open fulfillment_status:unfulfilled"
+    ) {
+      edges {
+        node {
+          id
+          name
+          totalPriceSet {
+            shopMoney {
+              amount
+              currencyCode
+            }
+          }
+          shippingAddress {
             name
-            totalPriceSet {
-              shopMoney {
-                amount
-                currencyCode
-              }
-            }
-            shippingAddress {
-              name
-            }
           }
         }
       }
     }
-  `);
+  }
+`);
 
   const json = await response.json();
 
