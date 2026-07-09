@@ -16,7 +16,6 @@ export async function action({ request }: ActionFunctionArgs) {
           name
           email
           phone
-          note
           totalPriceSet {
             shopMoney {
               amount
@@ -29,11 +28,14 @@ export async function action({ request }: ActionFunctionArgs) {
             zip
             city
             phone
+            countryCodeV2
           }
         }
       }
     }`,
-    { variables: { ids: orderIds } }
+    {
+      variables: { ids: orderIds },
+    }
   );
 
   const json = await response.json();
@@ -48,21 +50,38 @@ export async function action({ request }: ActionFunctionArgs) {
 
   orders.forEach((order: any, index: number) => {
     const row = worksheet.getRow(index + 2);
+
     const address = order.shippingAddress || {};
+
+    let telefone = address.phone || order.phone || "";
+
+    telefone = telefone.replace(/\s+/g, "");
+
+    if (
+      telefone &&
+      address.countryCodeV2 === "ES" &&
+      !telefone.startsWith("+34")
+    ) {
+      telefone = "+34" + telefone;
+    }
 
     row.getCell(1).value = order.name;
     row.getCell(2).value = order.totalPriceSet.shopMoney.amount;
     row.getCell(3).value = address.name || "";
-    row.getCell(4).value = `${address.address1 || ""} ${address.address2 || ""}`.trim();
+    row.getCell(4).value =
+      `${address.address1 || ""} ${address.address2 || ""}`.trim();
     row.getCell(5).value = address.zip || "";
     row.getCell(6).value = address.city || "";
-    row.getCell(7).value = address.phone || order.phone || "";
+    row.getCell(7).value = telefone;
     row.getCell(8).value = "ES";
     row.getCell(9).value = 0;
     row.getCell(10).value = 1;
     row.getCell(11).value = 1;
     row.getCell(12).value = order.email || "";
-    row.getCell(13).value = order.note || "";
+
+    // OBSERVAÇÕES (sempre vazio)
+    row.getCell(13).value = "";
+
     row.getCell(14).value = address.name || "";
     row.getCell(15).value = "24ES";
 
@@ -75,7 +94,8 @@ export async function action({ request }: ActionFunctionArgs) {
     headers: {
       "Content-Type":
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="ATT_IMPORT_TRILHOS.xlsx"`,
+      "Content-Disposition":
+        'attachment; filename="ATT_IMPORT_TRILHOS.xlsx"',
     },
   });
 }
