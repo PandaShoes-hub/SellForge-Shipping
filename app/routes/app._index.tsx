@@ -9,6 +9,7 @@ type Order = {
   name: string;
   customerName: string;
   total: string;
+  totalNumber: number;
   createdAt: string;
 };
 
@@ -48,12 +49,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const orders: Order[] = json.data.orders.edges.map((edge: any) => {
     const order = edge.node;
+    const amount = Number(order.totalPriceSet.shopMoney.amount || 0);
+    const currency = order.totalPriceSet.shopMoney.currencyCode;
 
     return {
       id: order.id,
       name: order.name,
       customerName: order.shippingAddress?.name || "Sem nome",
-      total: `${order.totalPriceSet.shopMoney.amount} ${order.totalPriceSet.shopMoney.currencyCode}`,
+      totalNumber: amount,
+      total: `${amount.toFixed(2)} ${currency}`,
       createdAt: new Date(order.createdAt).toLocaleDateString("pt-PT"),
     };
   });
@@ -67,6 +71,7 @@ export default function Index() {
   const [selectedOrders, setSelectedOrders] = useState<string[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
 
   const filteredOrders = useMemo(() => {
     const value = search.toLowerCase().trim();
@@ -76,31 +81,41 @@ export default function Index() {
     return orders.filter(
       (order) =>
         order.name.toLowerCase().includes(value) ||
-        order.customerName.toLowerCase().includes(value),
+        order.customerName.toLowerCase().includes(value)
     );
   }, [orders, search]);
 
+  const selectedTotal = useMemo(() => {
+    return orders
+      .filter((order) => selectedOrders.includes(order.id))
+      .reduce((sum, order) => sum + order.totalNumber, 0);
+  }, [orders, selectedOrders]);
+
   function toggleOrder(orderId: string) {
+    if (loading) return;
+
     setSelectedOrders((current) =>
       current.includes(orderId)
         ? current.filter((id) => id !== orderId)
-        : [...current, orderId],
+        : [...current, orderId]
     );
   }
 
   function toggleAll() {
+    if (loading) return;
+
     const visibleIds = filteredOrders.map((order) => order.id);
     const allVisibleSelected = visibleIds.every((id) =>
-      selectedOrders.includes(id),
+      selectedOrders.includes(id)
     );
 
     if (allVisibleSelected) {
       setSelectedOrders((current) =>
-        current.filter((id) => !visibleIds.includes(id)),
+        current.filter((id) => !visibleIds.includes(id))
       );
     } else {
       setSelectedOrders((current) =>
-        Array.from(new Set([...current, ...visibleIds])),
+        Array.from(new Set([...current, ...visibleIds]))
       );
     }
   }
@@ -109,6 +124,7 @@ export default function Index() {
     if (selectedOrders.length === 0) return;
 
     setLoading(true);
+    setSuccess(false);
 
     const response = await fetch("/api/export-selected", {
       method: "POST",
@@ -129,48 +145,113 @@ export default function Index() {
     a.remove();
 
     window.URL.revokeObjectURL(url);
+
     setLoading(false);
+    setSuccess(true);
+
+    setTimeout(() => {
+      setSuccess(false);
+    }, 2500);
   }
 
   return (
     <s-page heading="Exportar para Trilhos">
       <s-section>
-        <div
-          style={{
-            display: "grid",
-            gap: "16px",
-          }}
-        >
+        <div style={{ display: "grid", gap: "18px" }}>
           <div
             style={{
               display: "flex",
-              gap: "12px",
-              alignItems: "center",
               justifyContent: "space-between",
+              gap: "16px",
+              alignItems: "flex-start",
               flexWrap: "wrap",
             }}
           >
             <div>
-              <h2 style={{ margin: 0 }}>Encomendas não processadas</h2>
-              <p style={{ margin: "4px 0 0", color: "#666" }}>
-                Seleciona as encomendas que queres exportar para a Trilhos.
+              <h2 style={{ margin: 0, fontSize: "24px" }}>
+                📦 Exportar Encomendas
+              </h2>
+              <p style={{ margin: "6px 0 0", color: "#666" }}>
+                {orders.length} encomenda(s) não processada(s)
               </p>
             </div>
 
-            <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-              <s-button onClick={toggleAll}>
-                Selecionar todas
-              </s-button>
+            <s-button
+              variant="primary"
+              disabled={selectedOrders.length === 0 || loading}
+              onClick={exportSelected}
+            >
+              {loading
+                ? "A exportar..."
+                : `📥 Exportar (${selectedOrders.length})`}
+            </s-button>
+          </div>
 
-              <s-button
-                variant="primary"
-                disabled={selectedOrders.length === 0 || loading}
-                onClick={exportSelected}
-              >
-                {loading
-                  ? "A exportar..."
-                  : `Exportar ${selectedOrders.length || ""}`}
-              </s-button>
+          {success && (
+            <div
+              style={{
+                padding: "12px 14px",
+                borderRadius: "10px",
+                background: "#e3f1df",
+                border: "1px solid #b4e1aa",
+                fontWeight: 600,
+              }}
+            >
+              ✅ Excel exportado com sucesso
+            </div>
+          )}
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+              gap: "12px",
+            }}
+          >
+            <div
+              style={{
+                padding: "14px",
+                border: "1px solid #dfe3e8",
+                borderRadius: "12px",
+                background: "white",
+              }}
+            >
+              <div style={{ color: "#666", fontSize: "13px" }}>
+                Encomendas
+              </div>
+              <strong style={{ fontSize: "22px" }}>{orders.length}</strong>
+            </div>
+
+            <div
+              style={{
+                padding: "14px",
+                border: "1px solid #dfe3e8",
+                borderRadius: "12px",
+                background: "white",
+              }}
+            >
+              <div style={{ color: "#666", fontSize: "13px" }}>
+                Selecionadas
+              </div>
+              <strong style={{ fontSize: "22px" }}>
+                {selectedOrders.length}
+              </strong>
+            </div>
+
+            <div
+              style={{
+                padding: "14px",
+                border: "1px solid #dfe3e8",
+                borderRadius: "12px",
+                background: "white",
+              }}
+            >
+              <div style={{ color: "#666", fontSize: "13px" }}>
+                Total selecionado
+              </div>
+              <strong style={{ fontSize: "22px" }}>
+                {selectedTotal.toFixed(2)} €
+              </strong>
             </div>
           </div>
 
@@ -181,23 +262,29 @@ export default function Index() {
               alignItems: "center",
               justifyContent: "space-between",
               flexWrap: "wrap",
+              padding: "14px",
+              border: "1px solid #dfe3e8",
+              borderRadius: "12px",
+              background: "white",
             }}
           >
             <input
               value={search}
               onChange={(event) => setSearch(event.currentTarget.value)}
-              placeholder="Pesquisar por encomenda ou cliente..."
+              placeholder="🔍 Pesquisar por encomenda ou cliente..."
               style={{
                 width: "100%",
-                maxWidth: "420px",
-                padding: "10px 12px",
+                maxWidth: "440px",
+                padding: "11px 13px",
                 border: "1px solid #c9cccf",
-                borderRadius: "8px",
+                borderRadius: "9px",
                 fontSize: "14px",
               }}
             />
 
-            <strong>{selectedOrders.length} selecionada(s)</strong>
+            <s-button onClick={toggleAll} disabled={loading}>
+              Selecionar todas
+            </s-button>
           </div>
 
           <div
@@ -213,7 +300,7 @@ export default function Index() {
                 display: "grid",
                 gridTemplateColumns: "48px 110px 1fr 120px 140px",
                 gap: "12px",
-                padding: "12px 16px",
+                padding: "13px 16px",
                 background: "#f6f6f7",
                 fontWeight: 700,
                 fontSize: "13px",
@@ -227,36 +314,44 @@ export default function Index() {
             </div>
 
             {filteredOrders.length === 0 && (
-              <div style={{ padding: "24px", textAlign: "center" }}>
-                Não existem encomendas não processadas.
+              <div style={{ padding: "28px", textAlign: "center" }}>
+                ✅ Não existem encomendas não processadas.
               </div>
             )}
 
-            {filteredOrders.map((order) => (
-              <label
-                key={order.id}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "48px 110px 1fr 120px 140px",
-                  gap: "12px",
-                  alignItems: "center",
-                  padding: "14px 16px",
-                  borderTop: "1px solid #eee",
-                  cursor: "pointer",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedOrders.includes(order.id)}
-                  onChange={() => toggleOrder(order.id)}
-                />
+            {filteredOrders.map((order) => {
+              const selected = selectedOrders.includes(order.id);
 
-                <strong>{order.name}</strong>
-                <span>{order.customerName}</span>
-                <span>{order.createdAt}</span>
-                <strong style={{ textAlign: "right" }}>{order.total}</strong>
-              </label>
-            ))}
+              return (
+                <label
+                  key={order.id}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "48px 110px 1fr 120px 140px",
+                    gap: "12px",
+                    alignItems: "center",
+                    padding: "14px 16px",
+                    borderTop: "1px solid #eee",
+                    cursor: loading ? "not-allowed" : "pointer",
+                    background: selected ? "#eef4ff" : "white",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    disabled={loading}
+                    onChange={() => toggleOrder(order.id)}
+                  />
+
+                  <strong>{order.name}</strong>
+                  <span>{order.customerName}</span>
+                  <span>{order.createdAt}</span>
+                  <strong style={{ textAlign: "right" }}>
+                    {order.total}
+                  </strong>
+                </label>
+              );
+            })}
           </div>
         </div>
       </s-section>
