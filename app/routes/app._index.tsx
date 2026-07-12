@@ -8,6 +8,7 @@ type Order = {
   id: string;
   name: string;
   customerName: string;
+  note: string;
   total: string;
   totalNumber: number;
   createdAt: string;
@@ -29,6 +30,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
           node {
             id
             name
+            note
             createdAt
             totalPriceSet {
               shopMoney {
@@ -56,6 +58,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       id: order.id,
       name: order.name,
       customerName: order.shippingAddress?.name || "Sem nome",
+      note: order.note || "",
       totalNumber: amount,
       total: `${amount.toFixed(2)} ${currency}`,
       createdAt: new Date(order.createdAt).toLocaleDateString("pt-PT"),
@@ -81,7 +84,8 @@ export default function Index() {
     return orders.filter(
       (order) =>
         order.name.toLowerCase().includes(value) ||
-        order.customerName.toLowerCase().includes(value)
+        order.customerName.toLowerCase().includes(value) ||
+        order.note.toLowerCase().includes(value),
     );
   }, [orders, search]);
 
@@ -97,7 +101,7 @@ export default function Index() {
     setSelectedOrders((current) =>
       current.includes(orderId)
         ? current.filter((id) => id !== orderId)
-        : [...current, orderId]
+        : [...current, orderId],
     );
   }
 
@@ -105,17 +109,18 @@ export default function Index() {
     if (loading) return;
 
     const visibleIds = filteredOrders.map((order) => order.id);
-    const allVisibleSelected = visibleIds.every((id) =>
-      selectedOrders.includes(id)
-    );
+
+    const allVisibleSelected =
+      visibleIds.length > 0 &&
+      visibleIds.every((id) => selectedOrders.includes(id));
 
     if (allVisibleSelected) {
       setSelectedOrders((current) =>
-        current.filter((id) => !visibleIds.includes(id))
+        current.filter((id) => !visibleIds.includes(id)),
       );
     } else {
       setSelectedOrders((current) =>
-        Array.from(new Set([...current, ...visibleIds]))
+        Array.from(new Set([...current, ...visibleIds])),
       );
     }
   }
@@ -126,32 +131,44 @@ export default function Index() {
     setLoading(true);
     setSuccess(false);
 
-    const response = await fetch("/api/export-selected", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ orderIds: selectedOrders }),
-    });
+    try {
+      const response = await fetch("/api/export-selected", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          orderIds: selectedOrders,
+        }),
+      });
 
-    const blob = await response.blob();
-    const url = window.URL.createObjectURL(blob);
+      if (!response.ok) {
+        throw new Error(`Erro ao exportar: ${response.status}`);
+      }
 
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "ATT_IMPORT_TRILHOS.xlsx";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
 
-    window.URL.revokeObjectURL(url);
+      const downloadLink = document.createElement("a");
+      downloadLink.href = url;
+      downloadLink.download = "ATT_IMPORT_TRILHOS.xlsx";
 
-    setLoading(false);
-    setSuccess(true);
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      downloadLink.remove();
 
-    setTimeout(() => {
-      setSuccess(false);
-    }, 2500);
+      window.URL.revokeObjectURL(url);
+
+      setSuccess(true);
+
+      setTimeout(() => {
+        setSuccess(false);
+      }, 2500);
+    } catch (error) {
+      console.error("Erro ao exportar encomendas:", error);
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -171,6 +188,7 @@ export default function Index() {
               <h2 style={{ margin: 0, fontSize: "24px" }}>
                 📦 Exportar Encomendas
               </h2>
+
               <p style={{ margin: "6px 0 0", color: "#666" }}>
                 {orders.length} encomenda(s) não processada(s)
               </p>
@@ -219,6 +237,7 @@ export default function Index() {
               <div style={{ color: "#666", fontSize: "13px" }}>
                 Encomendas
               </div>
+
               <strong style={{ fontSize: "22px" }}>{orders.length}</strong>
             </div>
 
@@ -233,6 +252,7 @@ export default function Index() {
               <div style={{ color: "#666", fontSize: "13px" }}>
                 Selecionadas
               </div>
+
               <strong style={{ fontSize: "22px" }}>
                 {selectedOrders.length}
               </strong>
@@ -249,6 +269,7 @@ export default function Index() {
               <div style={{ color: "#666", fontSize: "13px" }}>
                 Total selecionado
               </div>
+
               <strong style={{ fontSize: "22px" }}>
                 {selectedTotal.toFixed(2)} €
               </strong>
@@ -271,7 +292,7 @@ export default function Index() {
             <input
               value={search}
               onChange={(event) => setSearch(event.currentTarget.value)}
-              placeholder="🔍 Pesquisar por encomenda ou cliente..."
+              placeholder="🔍 Pesquisar por encomenda, cliente ou nota..."
               style={{
                 width: "100%",
                 maxWidth: "440px",
@@ -308,7 +329,7 @@ export default function Index() {
             >
               <span></span>
               <span>Encomenda</span>
-              <span>Cliente</span>
+              <span>Cliente / Nota</span>
               <span>Data</span>
               <span style={{ textAlign: "right" }}>Total</span>
             </div>
@@ -344,8 +365,30 @@ export default function Index() {
                   />
 
                   <strong>{order.name}</strong>
-                  <span>{order.customerName}</span>
+
+                  <div>
+                    <div>{order.customerName}</div>
+
+                    {order.note && (
+                      <div
+                        style={{
+                          marginTop: "5px",
+                          display: "inline-block",
+                          background: "#fff4d6",
+                          color: "#8a6116",
+                          padding: "3px 8px",
+                          borderRadius: "999px",
+                          fontSize: "12px",
+                          fontWeight: 600,
+                        }}
+                      >
+                        📝 {order.note}
+                      </div>
+                    )}
+                  </div>
+
                   <span>{order.createdAt}</span>
+
                   <strong style={{ textAlign: "right" }}>
                     {order.total}
                   </strong>
