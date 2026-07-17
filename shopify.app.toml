@@ -1,24 +1,37 @@
+# Learn more about configuring your app at:
+# https://shopify.dev/docs/apps/tools/cli/configuration
+
 client_id = "df6be76d6fba2b85674e3865c7db11dd"
 name = "SellForge Shipping"
 application_url = "https://trilhos-model-export.onrender.com"
 embedded = true
 
-[access_scopes]
-scopes = "read_orders,write_orders"
+[build]
+automatically_update_urls_on_dev = true
 
 [webhooks]
 api_version = "2025-10"
 
 [[webhooks.subscriptions]]
-uri = "/webhooks/app/uninstalled"
 topics = ["app/uninstalled"]
+uri = "/webhooks/app/uninstalled"
 
 [[webhooks.subscriptions]]
-uri = "/webhooks/app/scopes_update"
 topics = ["app/scopes_update"]
+uri = "/webhooks/app/scopes_update"
+
+[[webhooks.subscriptions]]
+compliance_topics = [
+  "customers/data_request",
+  "customers/redact",
+  "shop/redact"
+]
+uri = "/webhooks/compliance"
+
+[access_scopes]
+scopes = "read_orders,write_orders"
 
 [auth]
-redirect_urls = ["https://trilhos-model-export.onrender.com/api/auth"]
-
-[build]
-automatically_update_urls_on_dev = true
+redirect_urls = [
+  "https://trilhos-model-export.onrender.com/api/auth"
+]
