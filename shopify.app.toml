@@ -3,7 +3,7 @@
 
 client_id = "df6be76d6fba2b85674e3865c7db11dd"
 name = "SellForge Shipping"
-application_url = "https://trilhos-model-export.onrender.com"
+application_url = "https://sellforge-shipping-old.onrender.com"
 embedded = true
 
 [build]
@@ -33,5 +33,5 @@ scopes = "read_orders,write_orders"
 
 [auth]
 redirect_urls = [
-  "https://trilhos-model-export.onrender.com/api/auth"
+  "https://sellforge-shipping-old.onrender.com/api/auth"
 ]
