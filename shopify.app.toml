@@ -1,7 +1,7 @@
 # Learn more about configuring your app at:
 # https://shopify.dev/docs/apps/tools/cli/configuration
 
-client_id = "df6be76d6fba2b85674e3865c7db11dd"
+client_id = "09a4b837cbcb513de4125e86c6f8af9d"
 name = "SellForge Shipping"
 application_url = "https://sellforge-shipping-old.onrender.com"
 embedded = true
