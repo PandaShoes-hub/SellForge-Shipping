@@ -16,66 +16,51 @@ type Order = {
   country: string;
 };
 
-export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { admin, session } = await authenticate.admin(request);
+import { useMemo, useState } from "react";
+import type {
+  HeadersFunction,
+  LoaderFunctionArgs,
+} from "react-router";
+import { useLoaderData } from "react-router";
+import { authenticate } from "../shopify.server";
+import { boundary } from "@shopify/shopify-app-react-router/server";
+import { isShopLicensed } from "../utils/license.server";
+
+type Order = {
+  id: string;
+  name: string;
+  customerName: string;
+  note: string;
+  total: string;
+  totalNumber: number;
+  createdAt: string;
+  country: string;
+};
+
+export const loader = async ({
+  request,
+}: LoaderFunctionArgs) => {
+  const { session } = await authenticate.admin(request);
   const licensed = isShopLicensed(session.shop);
 
   if (!licensed) {
-    return { licensed: false, shop: session.shop, orders: [] as Order[] };
+    return {
+      licensed: false,
+      shop: session.shop,
+      orders: [] as Order[],
+    };
   }
 
-  const response = await admin.graphql(`
-    #graphql
-    query {
-      orders(
-        first: 100,
-        sortKey: CREATED_AT,
-        reverse: true,
-        query: "status:open fulfillment_status:unfulfilled"
-      ) {
-        edges {
-          node {
-            id
-            name
-            note
-            createdAt
-            totalPriceSet {
-              shopMoney {
-                amount
-                currencyCode
-              }
-            }
-shippingAddress {
-  name
-  countryCodeV2
-}
-          }
-        }
-      }
-    }
-  `);
+  const orders: Order[] = [];
 
-  const json = await response.json();
-
-  const orders: Order[] = json.data.orders.edges.map((edge: any) => {
-    const order = edge.node;
-    const amount = Number(order.totalPriceSet.shopMoney.amount || 0);
-    const currency = order.totalPriceSet.shopMoney.currencyCode;
-
-    return {
-      id: order.id,
-      name: order.name,
-      customerName: order.shippingAddress?.name || "Sem nome",
-	  country: order.shippingAddress?.countryCodeV2 || "",
-      note: order.note || "",
-      totalNumber: amount,
-      total: `${amount.toFixed(2)} ${currency}`,
-      createdAt: new Date(order.createdAt).toLocaleDateString("pt-PT"),
-    };
-  });
-
-  return { licensed: true, shop: session.shop, orders };
+  return {
+    licensed: true,
+    shop: session.shop,
+    orders,
+  };
 };
+
+export default function Index() {
 
 export default function Index() {
   const { licensed, shop, orders } = useLoaderData<typeof loader>();
