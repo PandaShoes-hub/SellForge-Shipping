@@ -61,8 +61,6 @@ export const loader = async ({
 };
 
 export default function Index() {
-
-export default function Index() {
   const { licensed, shop, orders } = useLoaderData<typeof loader>();
 
   const [selectedOrders, setSelectedOrders] = useState<string[]>([]);
