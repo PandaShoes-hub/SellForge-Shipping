@@ -114,6 +114,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   }
 };
 
+function countryLabel(country: string) {
+  if (country === "ES") return "Espanha";
+  if (country === "PT") return "Portugal";
+
+  return country || "País não definido";
+}
+
 export default function ExportPage() {
   const {
     licensed,
@@ -138,7 +145,10 @@ export default function ExportPage() {
       (order) =>
         order.name.toLowerCase().includes(value) ||
         order.customerName.toLowerCase().includes(value) ||
-        order.note.toLowerCase().includes(value),
+        order.note.toLowerCase().includes(value) ||
+        countryLabel(order.country)
+          .toLowerCase()
+          .includes(value),
     );
   }, [orders, search]);
 
@@ -253,13 +263,11 @@ export default function ExportPage() {
               padding: "34px",
               background: "#ffffff",
               border: "1px solid #e1e3e5",
-              borderRadius: "16px",
+              borderRadius: "18px",
               textAlign: "center",
             }}
           >
-            <h2 style={{ marginTop: 0 }}>
-              Licença inativa
-            </h2>
+            <h2>Licença inativa</h2>
 
             <p style={{ color: "#616161" }}>
               A loja <strong>{shop}</strong> não tem
@@ -276,16 +284,17 @@ export default function ExportPage() {
   }
 
   return (
-    <s-page heading="SellForge Export">
+    <s-page heading="SellForge Shipping">
       <s-section>
         <div
           style={{
-            maxWidth: "1050px",
-            margin: "20px auto 50px",
+            maxWidth: "1120px",
+            margin: "24px auto 60px",
             display: "grid",
-            gap: "18px",
+            gap: "20px",
           }}
         >
+          {/* HEADER */}
           <div
             style={{
               display: "flex",
@@ -299,9 +308,10 @@ export default function ExportPage() {
               <Link
                 to="/app"
                 style={{
-                  fontSize: "13px",
-                  color: "#616161",
+                  color: "#18794e",
                   textDecoration: "none",
+                  fontSize: "13px",
+                  fontWeight: 600,
                 }}
               >
                 ← Voltar ao Dashboard
@@ -309,8 +319,8 @@ export default function ExportPage() {
 
               <h1
                 style={{
-                  margin: "10px 0 4px",
-                  fontSize: "30px",
+                  margin: "14px 0 5px",
+                  fontSize: "31px",
                 }}
               >
                 Exportar encomendas
@@ -318,12 +328,12 @@ export default function ExportPage() {
 
               <p
                 style={{
-                  color: "#616161",
                   margin: 0,
+                  color: "#616161",
                 }}
               >
-                Selecione as encomendas pendentes e
-                gere o ficheiro Excel da transportadora.
+                Selecione as encomendas pendentes e gere o
+                ficheiro Excel da transportadora.
               </p>
             </div>
 
@@ -335,23 +345,27 @@ export default function ExportPage() {
                 loading
               }
               style={{
-                minWidth: "170px",
-                padding: "12px 18px",
+                minWidth: "165px",
+                padding: "13px 19px",
                 border: 0,
-                borderRadius: "10px",
-                fontWeight: 700,
+                borderRadius: "11px",
                 background:
                   selectedOrders.length === 0
-                    ? "#e4e5e7"
-                    : "#303030",
+                    ? "#e3e5e4"
+                    : "#092c22",
                 color:
                   selectedOrders.length === 0
                     ? "#8c9196"
                     : "#ffffff",
+                fontWeight: 800,
                 cursor:
                   selectedOrders.length === 0
                     ? "not-allowed"
                     : "pointer",
+                boxShadow:
+                  selectedOrders.length === 0
+                    ? "none"
+                    : "0 7px 18px rgba(9,44,34,.16)",
               }}
             >
               {loading
@@ -369,19 +383,7 @@ export default function ExportPage() {
                 borderRadius: "12px",
               }}
             >
-              <strong>
-                Não foi possível carregar as encomendas.
-              </strong>
-
-              <p
-                style={{
-                  margin: "5px 0 0",
-                  color: "#616161",
-                }}
-              >
-                Confirme as permissões da aplicação e
-                tente novamente.
-              </p>
+              Não foi possível carregar as encomendas.
             </div>
           )}
 
@@ -392,33 +394,38 @@ export default function ExportPage() {
                 background: "#eaf7ed",
                 border: "1px solid #b7dfbd",
                 borderRadius: "12px",
-                fontWeight: 600,
+                color: "#18794e",
+                fontWeight: 700,
               }}
             >
               Excel exportado com sucesso.
             </div>
           )}
 
+          {/* STATS */}
           <div
             style={{
               display: "grid",
               gridTemplateColumns:
                 "repeat(3, minmax(0, 1fr))",
-              gap: "12px",
+              gap: "14px",
             }}
           >
             {[
               {
-                label: "Encomendas",
+                label: "ENCOMENDAS",
                 value: orders.length,
+                detail: "Disponíveis",
               },
               {
-                label: "Selecionadas",
+                label: "SELECIONADAS",
                 value: selectedOrders.length,
+                detail: "Selecionadas",
               },
               {
-                label: "Valor selecionado",
+                label: "VALOR SELECIONADO",
                 value: `${selectedTotal.toFixed(2)} €`,
+                detail: "Total",
               },
             ].map((card) => (
               <div
@@ -426,15 +433,18 @@ export default function ExportPage() {
                 style={{
                   background: "#ffffff",
                   border: "1px solid #e1e3e5",
-                  borderRadius: "14px",
-                  padding: "18px",
+                  borderRadius: "16px",
+                  padding: "20px",
+                  boxShadow:
+                    "0 6px 20px rgba(0,0,0,.035)",
                 }}
               >
                 <div
                   style={{
-                    color: "#616161",
-                    fontSize: "13px",
-                    marginBottom: "8px",
+                    fontSize: "11px",
+                    fontWeight: 800,
+                    color: "#8c9196",
+                    letterSpacing: ".05em",
                   }}
                 >
                   {card.label}
@@ -442,25 +452,38 @@ export default function ExportPage() {
 
                 <strong
                   style={{
-                    fontSize: "24px",
+                    display: "block",
+                    marginTop: "8px",
+                    fontSize: "27px",
                   }}
                 >
                   {card.value}
                 </strong>
+
+                <div
+                  style={{
+                    marginTop: "4px",
+                    color: "#6d7175",
+                    fontSize: "12px",
+                  }}
+                >
+                  {card.detail}
+                </div>
               </div>
             ))}
           </div>
 
+          {/* SEARCH */}
           <div
             style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "14px",
+              padding: "14px",
               background: "#ffffff",
               border: "1px solid #e1e3e5",
               borderRadius: "14px",
-              padding: "14px",
-              display: "flex",
-              gap: "12px",
-              alignItems: "center",
-              justifyContent: "space-between",
             }}
           >
             <input
@@ -468,14 +491,15 @@ export default function ExportPage() {
               onChange={(event) =>
                 setSearch(event.currentTarget.value)
               }
-              placeholder="Pesquisar encomenda, cliente ou nota..."
+              placeholder="Pesquisar encomenda, cliente, país ou nota..."
               style={{
                 width: "100%",
-                maxWidth: "560px",
-                padding: "11px 13px",
-                border: "1px solid #c9cccf",
-                borderRadius: "9px",
+                maxWidth: "650px",
+                padding: "12px 14px",
+                border: "1px solid #d4d7d5",
+                borderRadius: "10px",
                 fontSize: "14px",
+                outline: "none",
               }}
             />
 
@@ -484,59 +508,94 @@ export default function ExportPage() {
               onClick={toggleAll}
               disabled={loading}
               style={{
-                padding: "10px 14px",
+                padding: "11px 15px",
                 background: "#ffffff",
-                border: "1px solid #c9cccf",
-                borderRadius: "9px",
-                fontWeight: 600,
+                border: "1px solid #d4d7d5",
+                borderRadius: "10px",
+                fontWeight: 700,
                 cursor: "pointer",
+                whiteSpace: "nowrap",
               }}
             >
               Selecionar todas
             </button>
           </div>
 
+          {/* ORDERS */}
           <div
             style={{
               background: "#ffffff",
               border: "1px solid #e1e3e5",
-              borderRadius: "14px",
+              borderRadius: "16px",
               overflow: "hidden",
+              boxShadow: "0 8px 24px rgba(0,0,0,.035)",
             }}
           >
             <div
               style={{
                 display: "grid",
                 gridTemplateColumns:
-                  "48px 120px 1fr 130px 140px",
+                  "52px 120px 1fr 140px 130px 140px",
                 gap: "12px",
-                padding: "13px 16px",
-                background: "#f6f6f7",
-                fontWeight: 700,
-                fontSize: "13px",
-                color: "#4a4a4a",
+                padding: "14px 18px",
+                background: "#f7f8f7",
+                fontSize: "11px",
+                fontWeight: 800,
+                color: "#6d7175",
+                letterSpacing: ".04em",
               }}
             >
               <span />
-              <span>Encomenda</span>
-              <span>Cliente</span>
-              <span>Data</span>
+              <span>ENCOMENDA</span>
+              <span>CLIENTE</span>
+              <span>DESTINO</span>
+              <span>DATA</span>
               <span style={{ textAlign: "right" }}>
-                Total
+                TOTAL
               </span>
             </div>
 
             {filteredOrders.length === 0 ? (
               <div
                 style={{
-                  padding: "40px",
+                  padding: "65px 20px",
                   textAlign: "center",
-                  color: "#616161",
                 }}
               >
-                {accessError
-                  ? "Não foi possível carregar as encomendas."
-                  : "Não existem encomendas pendentes."}
+                <div
+                  style={{
+                    width: "52px",
+                    height: "52px",
+                    margin: "0 auto 16px",
+                    borderRadius: "50%",
+                    background: "#eaf5ed",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#18794e",
+                    fontWeight: 800,
+                  }}
+                >
+                  SF
+                </div>
+
+                <h3
+                  style={{
+                    margin: 0,
+                    fontSize: "19px",
+                  }}
+                >
+                  Ainda não existem encomendas
+                </h3>
+
+                <p
+                  style={{
+                    margin: "7px 0 0",
+                    color: "#6d7175",
+                  }}
+                >
+                  As encomendas pendentes aparecerão aqui.
+                </p>
               </div>
             ) : (
               filteredOrders.map((order) => {
@@ -549,17 +608,18 @@ export default function ExportPage() {
                     style={{
                       display: "grid",
                       gridTemplateColumns:
-                        "48px 120px 1fr 130px 140px",
+                        "52px 120px 1fr 140px 130px 140px",
                       gap: "12px",
-                      padding: "15px 16px",
                       alignItems: "center",
+                      padding: "17px 18px",
                       borderTop: "1px solid #eeeeee",
                       background: selected
-                        ? "#f1f8f4"
+                        ? "#f2f9f4"
                         : "#ffffff",
                       cursor: loading
                         ? "not-allowed"
                         : "pointer",
+                      transition: "background .15s ease",
                     }}
                   >
                     <input
@@ -576,27 +636,17 @@ export default function ExportPage() {
                     <div>
                       <div
                         style={{
-                          fontWeight: 600,
+                          fontWeight: 700,
                         }}
                       >
                         {order.customerName}
                       </div>
 
-                      <div
-                        style={{
-                          marginTop: "3px",
-                          color: "#8c9196",
-                          fontSize: "12px",
-                        }}
-                      >
-                        {order.country || "País não definido"}
-                      </div>
-
                       {order.note && (
                         <div
                           style={{
-                            marginTop: "6px",
-                            color: "#7a5c00",
+                            marginTop: "4px",
+                            color: "#8c6a00",
                             fontSize: "12px",
                           }}
                         >
@@ -604,6 +654,10 @@ export default function ExportPage() {
                         </div>
                       )}
                     </div>
+
+                    <span>
+                      {countryLabel(order.country)}
+                    </span>
 
                     <span>{order.createdAt}</span>
 
