@@ -24,17 +24,18 @@ export default function Dashboard() {
       <s-section>
         <div
           style={{
-            maxWidth: "900px",
-            margin: "20px auto",
+            maxWidth: "980px",
+            margin: "28px auto 60px",
             display: "grid",
-            gap: "18px",
+            gap: "22px",
           }}
         >
           <div>
             <h1
               style={{
                 margin: 0,
-                fontSize: "28px",
+                fontSize: "30px",
+                lineHeight: 1.15,
               }}
             >
               SellForge Shipping
@@ -42,8 +43,9 @@ export default function Dashboard() {
 
             <p
               style={{
-                marginTop: "6px",
-                color: "#666",
+                margin: "8px 0 0",
+                color: "#616161",
+                fontSize: "15px",
               }}
             >
               Exporte encomendas Shopify para o formato da sua transportadora.
@@ -54,108 +56,155 @@ export default function Dashboard() {
             style={{
               display: "grid",
               gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-              gap: "12px",
+              gap: "14px",
             }}
           >
             <div
               style={{
-                background: "white",
-                border: "1px solid #dfe3e8",
-                borderRadius: "12px",
+                background: "#ffffff",
+                border: "1px solid #e1e3e5",
+                borderRadius: "14px",
                 padding: "18px",
               }}
             >
               <div
                 style={{
-                  color: "#666",
-                  fontSize: "13px",
+                  fontSize: "12px",
+                  color: "#8c9196",
+                  marginBottom: "7px",
                 }}
               >
-                Loja
+                LOJA
               </div>
 
-              <strong>{shop}</strong>
+              <strong
+                style={{
+                  fontSize: "15px",
+                }}
+              >
+                {shop}
+              </strong>
             </div>
 
             <div
               style={{
-                background: "white",
-                border: "1px solid #dfe3e8",
-                borderRadius: "12px",
+                background: "#ffffff",
+                border: "1px solid #e1e3e5",
+                borderRadius: "14px",
                 padding: "18px",
               }}
             >
               <div
                 style={{
-                  color: "#666",
-                  fontSize: "13px",
+                  fontSize: "12px",
+                  color: "#8c9196",
+                  marginBottom: "7px",
                 }}
               >
-                Estado
+                ESTADO
               </div>
 
-              <strong>
+              <strong
+                style={{
+                  fontSize: "15px",
+                  color: licensed ? "#0a7a3d" : "#8a1f17",
+                }}
+              >
                 {licensed ? "Ativa" : "Inativa"}
               </strong>
             </div>
 
             <div
               style={{
-                background: "white",
-                border: "1px solid #dfe3e8",
-                borderRadius: "12px",
+                background: "#ffffff",
+                border: "1px solid #e1e3e5",
+                borderRadius: "14px",
                 padding: "18px",
               }}
             >
               <div
                 style={{
-                  color: "#666",
-                  fontSize: "13px",
+                  fontSize: "12px",
+                  color: "#8c9196",
+                  marginBottom: "7px",
                 }}
               >
-                Exportação
+                FORMATO
               </div>
 
-              <strong>Excel Trilhos</strong>
+              <strong
+                style={{
+                  fontSize: "15px",
+                }}
+              >
+                Excel Trilhos
+              </strong>
             </div>
           </div>
 
           <div
             style={{
-              background: "white",
-              border: "1px solid #dfe3e8",
-              borderRadius: "16px",
-              padding: "26px",
+              background: "#ffffff",
+              border: "1px solid #e1e3e5",
+              borderRadius: "18px",
+              padding: "30px",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: "30px",
+              flexWrap: "wrap",
             }}
           >
-            <h2
+            <div
               style={{
-                marginTop: 0,
+                maxWidth: "620px",
               }}
             >
-              Exportar encomendas
-            </h2>
+              <div
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  color: "#008060",
+                  letterSpacing: ".06em",
+                  marginBottom: "8px",
+                }}
+              >
+                SELLFORGE EXPORT
+              </div>
 
-            <p
-              style={{
-                color: "#666",
-                maxWidth: "600px",
-              }}
-            >
-              Selecione as encomendas pendentes e gere automaticamente
-              o ficheiro Excel pronto para importar na transportadora.
-            </p>
+              <h2
+                style={{
+                  margin: 0,
+                  fontSize: "25px",
+                }}
+              >
+                Exportar encomendas
+              </h2>
+
+              <p
+                style={{
+                  margin: "10px 0 0",
+                  color: "#616161",
+                  lineHeight: 1.55,
+                }}
+              >
+                Selecione as encomendas pendentes e gere automaticamente
+                o ficheiro Excel pronto para importar na transportadora.
+              </p>
+            </div>
 
             {licensed ? (
               <Link
                 to="/app/export"
                 style={{
-                  display: "inline-block",
-                  marginTop: "12px",
-                  padding: "11px 18px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  minWidth: "155px",
+                  padding: "12px 18px",
                   background: "#303030",
-                  color: "white",
-                  borderRadius: "8px",
+                  color: "#ffffff",
+                  borderRadius: "10px",
                   textDecoration: "none",
                   fontWeight: 700,
                 }}
@@ -165,37 +214,78 @@ export default function Dashboard() {
             ) : (
               <div
                 style={{
-                  marginTop: "16px",
-                  padding: "12px 14px",
+                  padding: "12px 16px",
                   background: "#fff4e5",
-                  borderRadius: "8px",
+                  border: "1px solid #f5c58b",
+                  borderRadius: "10px",
+                  color: "#6d4b00",
+                  fontWeight: 600,
                 }}
               >
-                A licença desta loja não está ativa.
+                Licença inativa
               </div>
             )}
           </div>
 
           <div
             style={{
+              padding: "20px 22px",
               background: "#f6f6f7",
-              borderRadius: "12px",
-              padding: "18px",
+              borderRadius: "14px",
             }}
           >
-            <strong>Como funciona</strong>
-
-            <ol
+            <div
               style={{
-                marginBottom: 0,
-                lineHeight: 1.8,
+                fontSize: "13px",
+                fontWeight: 700,
+                marginBottom: "12px",
               }}
             >
-              <li>Abra o módulo de exportação.</li>
-              <li>Selecione as encomendas.</li>
-              <li>Gere o ficheiro Excel.</li>
-              <li>Importe o ficheiro na transportadora.</li>
-            </ol>
+              Como funciona
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                gap: "14px",
+              }}
+            >
+              {[
+                ["01", "Abrir Export"],
+                ["02", "Selecionar encomendas"],
+                ["03", "Gerar Excel"],
+                ["04", "Importar na transportadora"],
+              ].map(([number, label]) => (
+                <div
+                  key={number}
+                  style={{
+                    display: "flex",
+                    gap: "10px",
+                    alignItems: "flex-start",
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      color: "#8c9196",
+                    }}
+                  >
+                    {number}
+                  </span>
+
+                  <span
+                    style={{
+                      fontSize: "13px",
+                      color: "#4a4a4a",
+                    }}
+                  >
+                    {label}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </s-section>
