@@ -1,247 +1,54 @@
-import { useMemo, useState } from "react";
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { useLoaderData } from "react-router";
-import { authenticate } from "../shopify.server";
+import { Link, useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
+
+import { authenticate } from "../shopify.server";
 import { isShopLicensed } from "../utils/license.server";
 
-type Order = {
-  id: string;
-  name: string;
-  customerName: string;
-  note: string;
-  total: string;
-  totalNumber: number;
-  createdAt: string;
-  country: string;
-};
-
-import { useMemo, useState } from "react";
-import type {
-  HeadersFunction,
-  LoaderFunctionArgs,
-} from "react-router";
-import { useLoaderData } from "react-router";
-import { authenticate } from "../shopify.server";
-import { boundary } from "@shopify/shopify-app-react-router/server";
-import { isShopLicensed } from "../utils/license.server";
-
-type Order = {
-  id: string;
-  name: string;
-  customerName: string;
-  note: string;
-  total: string;
-  totalNumber: number;
-  createdAt: string;
-  country: string;
-};
-
-export const loader = async ({
-  request,
-}: LoaderFunctionArgs) => {
+export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
+
   const licensed = isShopLicensed(session.shop);
 
-  if (!licensed) {
-    return {
-      licensed: false,
-      shop: session.shop,
-      orders: [] as Order[],
-    };
-  }
-
-  const orders: Order[] = [];
-
   return {
-    licensed: true,
     shop: session.shop,
-    orders,
+    licensed,
   };
 };
 
-export default function Index() {
-  const { licensed, shop, orders } = useLoaderData<typeof loader>();
-
-  const [selectedOrders, setSelectedOrders] = useState<string[]>([]);
-  const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-
-  const filteredOrders = useMemo(() => {
-    const value = search.toLowerCase().trim();
-
-    if (!value) return orders;
-
-    return orders.filter(
-      (order) =>
-        order.name.toLowerCase().includes(value) ||
-        order.customerName.toLowerCase().includes(value) ||
-        order.note.toLowerCase().includes(value),
-    );
-  }, [orders, search]);
-
-  const selectedTotal = useMemo(() => {
-    return orders
-      .filter((order) => selectedOrders.includes(order.id))
-      .reduce((sum, order) => sum + order.totalNumber, 0);
-  }, [orders, selectedOrders]);
-
-  function toggleOrder(orderId: string) {
-    if (loading) return;
-
-    setSelectedOrders((current) =>
-      current.includes(orderId)
-        ? current.filter((id) => id !== orderId)
-        : [...current, orderId],
-    );
-  }
-
-  function toggleAll() {
-    if (loading) return;
-
-    const visibleIds = filteredOrders.map((order) => order.id);
-
-    const allVisibleSelected =
-      visibleIds.length > 0 &&
-      visibleIds.every((id) => selectedOrders.includes(id));
-
-    if (allVisibleSelected) {
-      setSelectedOrders((current) =>
-        current.filter((id) => !visibleIds.includes(id)),
-      );
-    } else {
-      setSelectedOrders((current) =>
-        Array.from(new Set([...current, ...visibleIds])),
-      );
-    }
-  }
-
-  async function exportSelected() {
-    if (selectedOrders.length === 0) return;
-
-    setLoading(true);
-    setSuccess(false);
-
-    try {
-      const response = await fetch("/api/export-selected", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          orderIds: selectedOrders,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Erro ao exportar: ${response.status}`);
-      }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-
-      const downloadLink = document.createElement("a");
-      downloadLink.href = url;
-      downloadLink.download = "SELLFORGE_SHIPPING.xlsx";
-
-      document.body.appendChild(downloadLink);
-      downloadLink.click();
-      downloadLink.remove();
-
-      window.URL.revokeObjectURL(url);
-
-      setSuccess(true);
-
-      setTimeout(() => {
-        setSuccess(false);
-      }, 2500);
-    } catch (error) {
-      console.error("Erro ao exportar encomendas:", error);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  if (!licensed) {
-    return (
-      <s-page heading="SellForge Shipping">
-        <s-section>
-          <div
-            style={{
-              maxWidth: "680px",
-              margin: "40px auto",
-              padding: "32px",
-              background: "white",
-              border: "1px solid #dfe3e8",
-              borderRadius: "16px",
-              textAlign: "center",
-            }}
-          >
-            <div style={{ fontSize: "42px", marginBottom: "12px" }}>🔒</div>
-            <h2 style={{ margin: 0, fontSize: "24px" }}>Licença inativa</h2>
-            <p style={{ margin: "12px 0 0", color: "#666" }}>
-              Esta loja não tem autorização para utilizar a SellForge Shipping.
-            </p>
-            <p style={{ margin: "8px 0 0", color: "#666" }}>
-              Loja: <strong>{shop}</strong>
-            </p>
-            <p style={{ margin: "18px 0 0", color: "#444" }}>
-              Contacte a SellForge para ativar ou renovar o acesso.
-            </p>
-          </div>
-        </s-section>
-      </s-page>
-    );
-  }
+export default function Dashboard() {
+  const { shop, licensed } = useLoaderData<typeof loader>();
 
   return (
     <s-page heading="SellForge Shipping">
       <s-section>
-        <div style={{ display: "grid", gap: "18px" }}>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              gap: "16px",
-              alignItems: "flex-start",
-              flexWrap: "wrap",
-            }}
-          >
-            <div>
-              <h2 style={{ margin: 0, fontSize: "24px" }}>
-                🚚 SellForge Shipping
-              </h2>
-
-              <p style={{ margin: "6px 0 0", color: "#666" }}>
-                Exportação para Trilhos Dinâmicos
-              </p>
-            </div>
-
-            <s-button
-              variant="primary"
-              disabled={selectedOrders.length === 0 || loading}
-              onClick={exportSelected}
-            >
-              {loading
-                ? "A exportar..."
-                : `📥 Exportar (${selectedOrders.length})`}
-            </s-button>
-          </div>
-
-          {success && (
-            <div
+        <div
+          style={{
+            maxWidth: "900px",
+            margin: "20px auto",
+            display: "grid",
+            gap: "18px",
+          }}
+        >
+          <div>
+            <h1
               style={{
-                padding: "12px 14px",
-                borderRadius: "10px",
-                background: "#e3f1df",
-                border: "1px solid #b4e1aa",
-                fontWeight: 600,
+                margin: 0,
+                fontSize: "28px",
               }}
             >
-              ✅ Excel exportado com sucesso
-            </div>
-          )}
+              SellForge Shipping
+            </h1>
+
+            <p
+              style={{
+                marginTop: "6px",
+                color: "#666",
+              }}
+            >
+              Exporte encomendas Shopify para o formato da sua transportadora.
+            </p>
+          </div>
 
           <div
             style={{
@@ -252,188 +59,143 @@ export default function Index() {
           >
             <div
               style={{
-                padding: "14px",
+                background: "white",
                 border: "1px solid #dfe3e8",
                 borderRadius: "12px",
-                background: "white",
+                padding: "18px",
               }}
             >
-              <div style={{ color: "#666", fontSize: "13px" }}>
-                📦 Encomendas
+              <div
+                style={{
+                  color: "#666",
+                  fontSize: "13px",
+                }}
+              >
+                Loja
               </div>
 
-              <strong style={{ fontSize: "22px" }}>{orders.length}</strong>
+              <strong>{shop}</strong>
             </div>
 
             <div
               style={{
-                padding: "14px",
+                background: "white",
                 border: "1px solid #dfe3e8",
                 borderRadius: "12px",
-                background: "white",
+                padding: "18px",
               }}
             >
-              <div style={{ color: "#666", fontSize: "13px" }}>
-                ☑ Selecionadas
+              <div
+                style={{
+                  color: "#666",
+                  fontSize: "13px",
+                }}
+              >
+                Estado
               </div>
 
-              <strong style={{ fontSize: "22px" }}>
-                {selectedOrders.length}
+              <strong>
+                {licensed ? "Ativa" : "Inativa"}
               </strong>
             </div>
 
             <div
               style={{
-                padding: "14px",
+                background: "white",
                 border: "1px solid #dfe3e8",
                 borderRadius: "12px",
-                background: "white",
+                padding: "18px",
               }}
             >
-              <div style={{ color: "#666", fontSize: "13px" }}>
-                💰 Valor
+              <div
+                style={{
+                  color: "#666",
+                  fontSize: "13px",
+                }}
+              >
+                Exportação
               </div>
 
-              <strong style={{ fontSize: "22px" }}>
-                {selectedTotal.toFixed(2)} €
-              </strong>
+              <strong>Excel Trilhos</strong>
             </div>
           </div>
 
           <div
             style={{
-              display: "flex",
-              gap: "12px",
-              alignItems: "center",
-              justifyContent: "space-between",
-              flexWrap: "wrap",
-              padding: "14px",
-              border: "1px solid #dfe3e8",
-              borderRadius: "12px",
               background: "white",
+              border: "1px solid #dfe3e8",
+              borderRadius: "16px",
+              padding: "26px",
             }}
           >
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.currentTarget.value)}
-              placeholder="🔍 Pesquisar por encomenda, cliente ou nota..."
+            <h2
               style={{
-                width: "100%",
-                maxWidth: "440px",
-                padding: "11px 13px",
-                border: "1px solid #c9cccf",
-                borderRadius: "9px",
-                fontSize: "14px",
-              }}
-            />
-
-            <s-button onClick={toggleAll} disabled={loading}>
-              Selecionar todas
-            </s-button>
-          </div>
-
-          <div
-            style={{
-              border: "1px solid #dfe3e8",
-              borderRadius: "12px",
-              overflow: "hidden",
-              background: "white",
-            }}
-          >
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "48px 110px 1fr 120px 140px",
-                gap: "12px",
-                padding: "13px 16px",
-                background: "#f6f6f7",
-                fontWeight: 700,
-                fontSize: "13px",
+                marginTop: 0,
               }}
             >
-              <span></span>
-              <span>Encomenda</span>
-              <span>Cliente / Nota</span>
-              <span>Data</span>
-              <span style={{ textAlign: "right" }}>Total</span>
-            </div>
+              Exportar encomendas
+            </h2>
 
-            {filteredOrders.length === 0 && (
-              <div style={{ padding: "28px", textAlign: "center" }}>
-                ✅ Não existem encomendas não processadas.
+            <p
+              style={{
+                color: "#666",
+                maxWidth: "600px",
+              }}
+            >
+              Selecione as encomendas pendentes e gere automaticamente
+              o ficheiro Excel pronto para importar na transportadora.
+            </p>
+
+            {licensed ? (
+              <Link
+                to="/app/export"
+                style={{
+                  display: "inline-block",
+                  marginTop: "12px",
+                  padding: "11px 18px",
+                  background: "#303030",
+                  color: "white",
+                  borderRadius: "8px",
+                  textDecoration: "none",
+                  fontWeight: 700,
+                }}
+              >
+                Abrir Export →
+              </Link>
+            ) : (
+              <div
+                style={{
+                  marginTop: "16px",
+                  padding: "12px 14px",
+                  background: "#fff4e5",
+                  borderRadius: "8px",
+                }}
+              >
+                A licença desta loja não está ativa.
               </div>
             )}
+          </div>
 
-            {filteredOrders.map((order) => {
-              const selected = selectedOrders.includes(order.id);
+          <div
+            style={{
+              background: "#f6f6f7",
+              borderRadius: "12px",
+              padding: "18px",
+            }}
+          >
+            <strong>Como funciona</strong>
 
-              return (
-                <label
-                  key={order.id}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "48px 110px 1fr 120px 140px",
-                    gap: "12px",
-                    alignItems: "center",
-                    padding: "14px 16px",
-                    borderTop: "1px solid #eee",
-                    cursor: loading ? "not-allowed" : "pointer",
-                    background: selected ? "#eef4ff" : "white",
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selected}
-                    disabled={loading}
-                    onChange={() => toggleOrder(order.id)}
-                  />
-
-                  <strong>{order.name}</strong>
-
-                  <div>
-  <div>{order.customerName}</div>
-
-  {order.note && (
-    <div
-      style={{
-        marginTop: "5px",
-        display: "inline-block",
-        background: "#fff4d6",
-        color: "#8a6116",
-        padding: "3px 8px",
-        borderRadius: "999px",
-        fontSize: "12px",
-        fontWeight: 600,
-      }}
-    >
-      📝 {order.note}
-    </div>
-  )}
-
-  <div
-    style={{
-      marginTop: "6px",
-      fontSize: "12px",
-      color: "#666",
-      fontWeight: 600,
-    }}
-  >
-    {order.country === "ES"
-      ? "🇪🇸 Espanha"
-      : order.country === "PT"
-        ? "🇵🇹 Portugal"
-        : order.country || "País não definido"}
-  </div>
-</div>
-
-                  <span>{order.createdAt}</span>
-
-                  <strong style={{ textAlign: "right" }}>
-                    {order.total}
-                  </strong>
-                </label>
-              );
-            })}
+            <ol
+              style={{
+                marginBottom: 0,
+                lineHeight: 1.8,
+              }}
+            >
+              <li>Abra o módulo de exportação.</li>
+              <li>Selecione as encomendas.</li>
+              <li>Gere o ficheiro Excel.</li>
+              <li>Importe o ficheiro na transportadora.</li>
+            </ol>
           </div>
         </div>
       </s-section>
