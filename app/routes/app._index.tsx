@@ -543,7 +543,7 @@ export default function Dashboard() {
           >
             <CarrierCard
               name="Trilhos"
-              description="Gere o ficheiro Excel ATT_IMPORT com as encomendas selecionadas."
+              description="Exporte as encomendas selecionadas para um ficheiro Excel da SellForge."
               enabled={accountAllowed && trilhosEnabled}
               available
               href="/app/export"

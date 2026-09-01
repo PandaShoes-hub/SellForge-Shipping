@@ -333,7 +333,7 @@ export default function ExportPage() {
               </h1>
 
               <p style={{ margin: 0, color: "#616161" }}>
-                Selecione as encomendas e gere o ficheiro ATT_IMPORT.xlsx.
+                Selecione as encomendas e gere o ficheiro Excel da SellForge.
               </p>
             </div>
 

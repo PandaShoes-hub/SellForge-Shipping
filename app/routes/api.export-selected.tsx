@@ -252,7 +252,7 @@ export async function action({ request }: ActionFunctionArgs) {
         "Content-Type":
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "Content-Disposition":
-          'attachment; filename="ATT_IMPORT.xlsx"',
+          'attachment; filename="SELLFORGE_EXPORT.xlsx"',
         "Cache-Control":
           "no-store, no-cache, must-revalidate",
       },
