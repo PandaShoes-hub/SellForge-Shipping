@@ -71,6 +71,7 @@ export async function action({ request }: ActionFunctionArgs) {
             name
             email
             phone
+            note
             currentTotalPriceSet {
               shopMoney {
                 amount
@@ -248,7 +249,7 @@ export async function action({ request }: ActionFunctionArgs) {
       row.getCell(10).value = 1;
       row.getCell(11).value = 1;
       row.getCell(12).value = order.email || "";
-      row.getCell(13).value = "";
+      row.getCell(13).value = order.note || "";
       row.getCell(14).value = customerName;
       row.getCell(15).value =
         country === "PT" ? "24PT" : "24ES";

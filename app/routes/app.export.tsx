@@ -536,7 +536,7 @@ export default function ExportPage() {
               style={{
                 display: "grid",
                 gridTemplateColumns:
-                  "52px 120px 1fr 140px 130px 140px",
+                  "52px 110px minmax(150px, 1fr) minmax(180px, 1.2fr) 120px 110px 120px",
                 gap: "12px",
                 padding: "14px 18px",
                 background: "#f7f8f7",
@@ -548,6 +548,7 @@ export default function ExportPage() {
               <span />
               <span>ENCOMENDA</span>
               <span>CLIENTE</span>
+              <span>OBSERVAÇÕES</span>
               <span>DESTINO</span>
               <span>DATA</span>
               <span style={{ textAlign: "right" }}>TOTAL</span>
@@ -574,7 +575,7 @@ export default function ExportPage() {
                     style={{
                       display: "grid",
                       gridTemplateColumns:
-                        "52px 120px 1fr 140px 130px 140px",
+                        "52px 110px minmax(150px, 1fr) minmax(180px, 1.2fr) 120px 110px 120px",
                       gap: "12px",
                       alignItems: "center",
                       padding: "15px 18px",
@@ -593,6 +594,18 @@ export default function ExportPage() {
                     />
                     <strong>{order.name}</strong>
                     <span>{order.customerName}</span>
+                    <span
+                      title={order.note || "Sem observações"}
+                      style={{
+                        color: order.note ? "#383838" : "#8c9196",
+                        fontSize: "13px",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {order.note || "—"}
+                    </span>
                     <span>{countryLabel(order.country)}</span>
                     <span>{order.createdAt}</span>
                     <strong style={{ textAlign: "right" }}>
