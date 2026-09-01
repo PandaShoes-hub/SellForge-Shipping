@@ -30,13 +30,19 @@ model Session {
 }
 
 model License {
-  id           String    @id @default(cuid())
-  shop         String    @unique
-  company      String?
-  active       Boolean   @default(true)
-  expiresAt    DateTime?
-  lastAccessAt DateTime?
-  notes        String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  shop            String    @unique
+  company         String?
+  active          Boolean   @default(true)
+
+  trilhosEnabled  Boolean   @default(true)
+  cttEnabled      Boolean   @default(false)
+  upsEnabled      Boolean   @default(false)
+
+  expiresAt       DateTime?
+  lastAccessAt    DateTime?
+  notes           String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 }

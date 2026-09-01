@@ -199,6 +199,10 @@ export const action = async ({
         formData.get("expiresAt") || "",
       );
 
+      const trilhosEnabled = formData.get("trilhosEnabled") === "on";
+      const cttEnabled = formData.get("cttEnabled") === "on";
+      const upsEnabled = formData.get("upsEnabled") === "on";
+
       if (!shop || !shop.endsWith(".myshopify.com")) {
         return {
           error:
@@ -226,6 +230,9 @@ export const action = async ({
           notes: notes || null,
           expiresAt: parseExpiryDate(expiresAtValue),
           active: true,
+          trilhosEnabled,
+          cttEnabled,
+          upsEnabled,
         },
       });
 
@@ -262,6 +269,50 @@ export const action = async ({
         success: license.active
           ? "Cliente suspenso."
           : "Cliente ativado.",
+      };
+    }
+
+    if (intent === "toggleCarrier") {
+      const id = String(formData.get("id") || "");
+      const carrier = String(formData.get("carrier") || "");
+
+      if (!["trilhos", "ctt", "ups"].includes(carrier)) {
+        return {
+          error: "Transportadora inválida.",
+        };
+      }
+
+      const license = await prisma.license.findUnique({
+        where: { id },
+      });
+
+      if (!license) {
+        return {
+          error: "Licença não encontrada.",
+        };
+      }
+
+      const field =
+        carrier === "trilhos"
+          ? "trilhosEnabled"
+          : carrier === "ctt"
+            ? "cttEnabled"
+            : "upsEnabled";
+
+      const currentValue = license[field];
+
+      await prisma.license.update({
+        where: { id },
+        data: {
+          [field]: !currentValue,
+        },
+      });
+
+      const carrierName =
+        carrier === "trilhos" ? "Trilhos" : carrier === "ctt" ? "CTT" : "UPS";
+
+      return {
+        success: `${carrierName} ${currentValue ? "desativada" : "ativada"} para ${license.company || license.shop}.`,
       };
     }
 
@@ -596,6 +647,37 @@ export default function SellForgeAdmin() {
               />
             </Field>
 
+            <div
+              style={{
+                gridColumn: "1 / -1",
+                display: "flex",
+                gap: "18px",
+                flexWrap: "wrap",
+                padding: "12px 14px",
+                background: "#f6f6f7",
+                borderRadius: "10px",
+              }}
+            >
+              <label style={carrierCheckboxLabelStyle}>
+                <input
+                  type="checkbox"
+                  name="trilhosEnabled"
+                  defaultChecked
+                />
+                Trilhos
+              </label>
+
+              <label style={carrierCheckboxLabelStyle}>
+                <input type="checkbox" name="cttEnabled" />
+                CTT
+              </label>
+
+              <label style={carrierCheckboxLabelStyle}>
+                <input type="checkbox" name="upsEnabled" />
+                UPS
+              </label>
+            </div>
+
             <div style={{ gridColumn: "1 / -1" }}>
               <button type="submit" style={primaryButtonStyle}>
                 Guardar cliente
@@ -686,6 +768,9 @@ export default function SellForgeAdmin() {
                     <TableHeader>Cliente</TableHeader>
                     <TableHeader>Loja</TableHeader>
                     <TableHeader>Estado</TableHeader>
+                    <TableHeader>Trilhos</TableHeader>
+                    <TableHeader>CTT</TableHeader>
+                    <TableHeader>UPS</TableHeader>
                     <TableHeader>Validade</TableHeader>
                     <TableHeader>Último acesso</TableHeader>
                     <TableHeader>Ações</TableHeader>
@@ -783,6 +868,33 @@ export default function SellForgeAdmin() {
                                   ? "🟢 ATIVA"
                                   : "🔴 SUSPENSA"}
                           </span>
+                        </TableCell>
+
+                        <TableCell>
+                          <CarrierToggle
+                            id={license.id}
+                            carrier="trilhos"
+                            enabled={license.trilhosEnabled}
+                            disabled={!active}
+                          />
+                        </TableCell>
+
+                        <TableCell>
+                          <CarrierToggle
+                            id={license.id}
+                            carrier="ctt"
+                            enabled={license.cttEnabled}
+                            disabled={!active}
+                          />
+                        </TableCell>
+
+                        <TableCell>
+                          <CarrierToggle
+                            id={license.id}
+                            carrier="ups"
+                            enabled={license.upsEnabled}
+                            disabled={!active}
+                          />
                         </TableCell>
 
                         <TableCell>
@@ -931,6 +1043,57 @@ export default function SellForgeAdmin() {
   );
 }
 
+function CarrierToggle({
+  id,
+  carrier,
+  enabled,
+  disabled,
+}: {
+  id: string;
+  carrier: "trilhos" | "ctt" | "ups";
+  enabled: boolean;
+  disabled: boolean;
+}) {
+  const carrierName =
+    carrier === "trilhos" ? "Trilhos" : carrier === "ctt" ? "CTT" : "UPS";
+
+  return (
+    <Form method="post">
+      <input type="hidden" name="intent" value="toggleCarrier" />
+      <input type="hidden" name="id" value={id} />
+      <input type="hidden" name="carrier" value={carrier} />
+
+      <button
+        type="submit"
+        disabled={disabled}
+        title={
+          disabled
+            ? "Ativa primeiro a licença da loja."
+            : `${enabled ? "Desativar" : "Ativar"} ${carrierName}`
+        }
+        style={{
+          ...smallButtonStyle,
+          minWidth: "62px",
+          background: disabled
+            ? "#f1f2f3"
+            : enabled
+              ? "#e3f1df"
+              : "#fff1f0",
+          color: disabled
+            ? "#8c9196"
+            : enabled
+              ? "#235b18"
+              : "#8a1f17",
+          cursor: disabled ? "not-allowed" : "pointer",
+          opacity: disabled ? 0.7 : 1,
+        }}
+      >
+        {enabled ? "✅ ON" : "🔒 OFF"}
+      </button>
+    </Form>
+  );
+}
+
 function StatCard({
   label,
   value,
@@ -1069,6 +1232,15 @@ const iconButtonStyle: React.CSSProperties = {
   padding: "2px",
   cursor: "pointer",
   fontSize: "15px",
+};
+
+const carrierCheckboxLabelStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "7px",
+  fontSize: "14px",
+  fontWeight: 700,
+  cursor: "pointer",
 };
 
 const successStyle: React.CSSProperties = {

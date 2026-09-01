@@ -10,11 +10,20 @@ export type LicenseStatus = {
   shop: string;
   company: string | null;
   expiresAt: Date | null;
+  trilhosEnabled: boolean;
+  cttEnabled: boolean;
+  upsEnabled: boolean;
 };
 
 function normalizeShop(shop: string): string {
   return shop.trim().toLowerCase();
 }
+
+const noCarrierAccess = {
+  trilhosEnabled: false,
+  cttEnabled: false,
+  upsEnabled: false,
+};
 
 export async function getLicenseStatus(
   shop: string,
@@ -28,12 +37,29 @@ export async function getLicenseStatus(
   });
 
   if (!license) {
+    // Uma loja nova fica registada automaticamente no Admin,
+    // mas sem acesso até ser aprovada manualmente.
+    await prisma.license.upsert({
+      where: {
+        shop: normalizedShop,
+      },
+      update: {},
+      create: {
+        shop: normalizedShop,
+        active: false,
+        trilhosEnabled: false,
+        cttEnabled: false,
+        upsEnabled: false,
+      },
+    });
+
     return {
       allowed: false,
       reason: "not_found",
       shop: normalizedShop,
       company: null,
       expiresAt: null,
+      ...noCarrierAccess,
     };
   }
 
@@ -44,6 +70,9 @@ export async function getLicenseStatus(
       shop: normalizedShop,
       company: license.company,
       expiresAt: license.expiresAt,
+      trilhosEnabled: license.trilhosEnabled,
+      cttEnabled: license.cttEnabled,
+      upsEnabled: license.upsEnabled,
     };
   }
 
@@ -58,6 +87,9 @@ export async function getLicenseStatus(
       shop: normalizedShop,
       company: license.company,
       expiresAt: license.expiresAt,
+      trilhosEnabled: license.trilhosEnabled,
+      cttEnabled: license.cttEnabled,
+      upsEnabled: license.upsEnabled,
     };
   }
 
@@ -67,6 +99,9 @@ export async function getLicenseStatus(
     shop: normalizedShop,
     company: license.company,
     expiresAt: license.expiresAt,
+    trilhosEnabled: license.trilhosEnabled,
+    cttEnabled: license.cttEnabled,
+    upsEnabled: license.upsEnabled,
   };
 }
 
