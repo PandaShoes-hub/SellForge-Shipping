@@ -2,8 +2,12 @@ import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { Link, useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 
+import prisma from "../db.server";
 import { authenticate } from "../shopify.server";
-import { isShopLicensed } from "../utils/license.server";
+import {
+  getLicenseStatus,
+  registerLicenseAccess,
+} from "../utils/license.server";
 
 type DashboardOrder = {
   amount: number;
@@ -13,17 +17,53 @@ type DashboardOrder = {
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
 
-  const licensed = isShopLicensed(session.shop);
+  let license = await getLicenseStatus(session.shop);
+  let company = license.company;
 
-  if (!licensed) {
+  // Preenche automaticamente o nome da loja no Admin na primeira utilização.
+  if (!company) {
+    try {
+      const shopResponse = await admin.graphql(`
+        #graphql
+        query SellForgeShopName {
+          shop {
+            name
+          }
+        }
+      `);
+
+      const shopJson = await shopResponse.json();
+      const shopName = String(shopJson?.data?.shop?.name || "").trim();
+
+      if (shopName) {
+        await prisma.license.update({
+          where: { shop: session.shop.trim().toLowerCase() },
+          data: { company: shopName },
+        });
+
+        company = shopName;
+        license = { ...license, company: shopName };
+      }
+    } catch (error) {
+      console.error("Erro ao sincronizar nome da loja:", error);
+    }
+  }
+
+  if (!license.allowed) {
     return {
       shop: session.shop,
-      licensed: false,
+      company,
+      accountAllowed: false,
+      trilhosEnabled: false,
+      cttEnabled: false,
+      upsEnabled: false,
       orderCount: 0,
-      valueLabel: "0,00 €",
+      valueLabel: "0,00 EUR",
       accessError: false,
     };
   }
+
+  await registerLicenseAccess(session.shop);
 
   try {
     const response = await admin.graphql(`
@@ -50,50 +90,47 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     `);
 
     const json = await response.json();
-
     const edges = json?.data?.orders?.edges ?? [];
 
     const orders: DashboardOrder[] = edges.map((edge: any) => ({
-      amount: Number(
-        edge.node?.totalPriceSet?.shopMoney?.amount || 0,
-      ),
+      amount: Number(edge.node?.totalPriceSet?.shopMoney?.amount || 0),
       currency:
         edge.node?.totalPriceSet?.shopMoney?.currencyCode || "EUR",
     }));
 
     const totalsByCurrency = orders.reduce<Record<string, number>>(
       (totals, order) => {
-        totals[order.currency] =
-          (totals[order.currency] || 0) + order.amount;
-
+        totals[order.currency] = (totals[order.currency] || 0) + order.amount;
         return totals;
       },
       {},
     );
 
     const valueLabel = Object.entries(totalsByCurrency)
-      .map(
-        ([currency, value]) =>
-          `${value.toFixed(2)} ${currency}`,
-      )
+      .map(([currency, value]) => `${value.toFixed(2)} ${currency}`)
       .join(" + ");
 
     return {
       shop: session.shop,
-      licensed: true,
+      company,
+      accountAllowed: true,
+      trilhosEnabled: license.trilhosEnabled,
+      cttEnabled: license.cttEnabled,
+      upsEnabled: license.upsEnabled,
       orderCount: orders.length,
       valueLabel: valueLabel || "0,00 EUR",
       accessError: false,
     };
   } catch (error) {
-    console.error(
-      "Erro ao carregar resumo das encomendas:",
-      error,
-    );
+    console.error("Erro ao carregar resumo das encomendas:", error);
 
     return {
       shop: session.shop,
-      licensed: true,
+      company,
+      accountAllowed: true,
+      trilhosEnabled: license.trilhosEnabled,
+      cttEnabled: license.cttEnabled,
+      upsEnabled: license.upsEnabled,
       orderCount: 0,
       valueLabel: "—",
       accessError: true,
@@ -101,10 +138,141 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   }
 };
 
+type CarrierCardProps = {
+  name: string;
+  description: string;
+  enabled: boolean;
+  available: boolean;
+  href?: string;
+  badge?: string;
+};
+
+function CarrierCard({
+  name,
+  description,
+  enabled,
+  available,
+  href,
+  badge,
+}: CarrierCardProps) {
+  const usable = enabled && available && href;
+
+  return (
+    <div
+      style={{
+        background: "#ffffff",
+        border: "1px solid #e1e3e5",
+        borderRadius: "18px",
+        padding: "22px",
+        display: "grid",
+        gap: "14px",
+        boxShadow: "0 8px 24px rgba(0,0,0,.035)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          gap: "12px",
+        }}
+      >
+        <div>
+          <div
+            style={{
+              fontSize: "21px",
+              fontWeight: 850,
+              color: "#1f1f1f",
+            }}
+          >
+            {name}
+          </div>
+
+          <div
+            style={{
+              marginTop: "5px",
+              fontSize: "13px",
+              color: "#6d7175",
+              lineHeight: 1.5,
+            }}
+          >
+            {description}
+          </div>
+        </div>
+
+        <span
+          style={{
+            padding: "5px 9px",
+            borderRadius: "999px",
+            fontSize: "11px",
+            fontWeight: 800,
+            whiteSpace: "nowrap",
+            background: enabled ? "#e5f4e8" : "#f2f3f3",
+            color: enabled ? "#18794e" : "#6d7175",
+          }}
+        >
+          {badge || (enabled ? "ACESSO ATIVO" : "SEM ACESSO")}
+        </span>
+      </div>
+
+      {!available ? (
+        <div
+          style={{
+            padding: "11px 13px",
+            borderRadius: "10px",
+            background: "#f6f6f7",
+            color: "#6d7175",
+            fontSize: "13px",
+            fontWeight: 700,
+          }}
+        >
+          🔒 Integração em breve
+        </div>
+      ) : usable ? (
+        <Link
+          to={href}
+          style={{
+            display: "inline-flex",
+            width: "fit-content",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "11px 16px",
+            borderRadius: "10px",
+            background: "#102c24",
+            color: "#ffffff",
+            textDecoration: "none",
+            fontWeight: 800,
+            fontSize: "13px",
+          }}
+        >
+          Exportar encomendas →
+        </Link>
+      ) : (
+        <div
+          style={{
+            padding: "11px 13px",
+            borderRadius: "10px",
+            background: "#fff4e5",
+            color: "#7b4d00",
+            fontSize: "13px",
+            fontWeight: 700,
+          }}
+        >
+          🔒 Aguarda autorização do administrador
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const {
     shop,
-    licensed,
+    company,
+    accountAllowed,
+    trilhosEnabled,
+    cttEnabled,
+    upsEnabled,
     orderCount,
     valueLabel,
     accessError,
@@ -115,13 +283,12 @@ export default function Dashboard() {
       <s-section>
         <div
           style={{
-            maxWidth: "1120px",
+            maxWidth: "1180px",
             margin: "24px auto 60px",
             display: "grid",
             gap: "22px",
           }}
         >
-          {/* HEADER */}
           <div
             style={{
               display: "flex",
@@ -142,14 +309,14 @@ export default function Dashboard() {
               >
                 <div
                   style={{
-                    width: "38px",
-                    height: "38px",
-                    borderRadius: "11px",
+                    width: "42px",
+                    height: "42px",
+                    borderRadius: "12px",
                     background: "#e8f5ec",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    fontWeight: 800,
+                    fontWeight: 850,
                     color: "#18794e",
                   }}
                 >
@@ -157,16 +324,9 @@ export default function Dashboard() {
                 </div>
 
                 <div>
-                  <div
-                    style={{
-                      fontWeight: 800,
-                      fontSize: "15px",
-                      lineHeight: 1.1,
-                    }}
-                  >
+                  <div style={{ fontWeight: 850, fontSize: "15px" }}>
                     SELLFORGE
                   </div>
-
                   <div
                     style={{
                       fontSize: "11px",
@@ -186,7 +346,7 @@ export default function Dashboard() {
                   lineHeight: 1.15,
                 }}
               >
-                Bem-vindo de volta
+                {company ? `Olá, ${company}` : "Bem-vindo"}
               </h1>
 
               <p
@@ -196,7 +356,7 @@ export default function Dashboard() {
                   fontSize: "15px",
                 }}
               >
-                Aqui está o resumo das encomendas prontas para exportar.
+                Escolha a transportadora disponível para a sua loja.
               </p>
             </div>
 
@@ -207,15 +367,46 @@ export default function Dashboard() {
                 border: "1px solid #e1e3e5",
                 borderRadius: "12px",
                 boxShadow: "0 4px 14px rgba(0,0,0,.04)",
-                fontWeight: 700,
-                fontSize: "13px",
               }}
             >
-              {shop}
+              <div style={{ fontWeight: 800, fontSize: "13px" }}>
+                {company || "Loja Shopify"}
+              </div>
+              <div
+                style={{
+                  marginTop: "3px",
+                  color: "#6d7175",
+                  fontSize: "11px",
+                }}
+              >
+                {shop}
+              </div>
             </div>
           </div>
 
-          {/* ERROR */}
+          {!accountAllowed && (
+            <div
+              style={{
+                padding: "17px 18px",
+                background: "#fff5e6",
+                border: "1px solid #efc77e",
+                borderRadius: "14px",
+              }}
+            >
+              <strong>Acesso pendente</strong>
+              <div
+                style={{
+                  marginTop: "5px",
+                  color: "#6d5a34",
+                  lineHeight: 1.5,
+                }}
+              >
+                A sua loja já foi registada na SellForge Shipping. O administrador
+                precisa ativar a conta e escolher as transportadoras disponíveis.
+              </div>
+            </div>
+          )}
+
           {accessError && (
             <div
               style={{
@@ -228,19 +419,9 @@ export default function Dashboard() {
               <strong>
                 Não foi possível atualizar o resumo das encomendas.
               </strong>
-
-              <p
-                style={{
-                  margin: "5px 0 0",
-                  color: "#616161",
-                }}
-              >
-                A aplicação continua disponível. Tente novamente mais tarde.
-              </p>
             </div>
           )}
 
-          {/* STATS */}
           <div
             style={{
               display: "grid",
@@ -248,304 +429,149 @@ export default function Dashboard() {
               gap: "14px",
             }}
           >
-            <div
-              style={{
-                background: "#ffffff",
-                border: "1px solid #e1e3e5",
-                borderRadius: "16px",
-                padding: "20px",
-                boxShadow: "0 6px 20px rgba(0,0,0,.035)",
-              }}
-            >
+            {[
+              {
+                label: "ENCOMENDAS POR EXPORTAR",
+                value: orderCount,
+                detail: "Pendentes de exportação",
+              },
+              {
+                label: "VALOR PENDENTE",
+                value: valueLabel,
+                detail: "Valor total das encomendas",
+              },
+              {
+                label: "ESTADO DA CONTA",
+                value: accountAllowed ? "Ativa" : "Pendente",
+                detail: accountAllowed
+                  ? "Conta autorizada"
+                  : "Aguarda autorização",
+              },
+            ].map((card) => (
               <div
+                key={card.label}
                 style={{
-                  fontSize: "11px",
-                  fontWeight: 700,
-                  color: "#8c9196",
-                  letterSpacing: ".05em",
+                  background: "#ffffff",
+                  border: "1px solid #e1e3e5",
+                  borderRadius: "16px",
+                  padding: "20px",
+                  boxShadow: "0 6px 20px rgba(0,0,0,.035)",
                 }}
               >
-                ENCOMENDAS POR EXPORTAR
+                <div
+                  style={{
+                    fontSize: "11px",
+                    fontWeight: 800,
+                    color: "#8c9196",
+                    letterSpacing: ".05em",
+                  }}
+                >
+                  {card.label}
+                </div>
+
+                <strong
+                  style={{
+                    display: "block",
+                    marginTop: "9px",
+                    fontSize:
+                      card.label === "VALOR PENDENTE" ? "23px" : "27px",
+                    color:
+                      card.label === "ESTADO DA CONTA"
+                        ? accountAllowed
+                          ? "#18794e"
+                          : "#9a6700"
+                        : "#202223",
+                  }}
+                >
+                  {card.value}
+                </strong>
+
+                <div
+                  style={{
+                    marginTop: "5px",
+                    color: "#6d7175",
+                    fontSize: "13px",
+                  }}
+                >
+                  {card.detail}
+                </div>
               </div>
-
-              <strong
-                style={{
-                  display: "block",
-                  marginTop: "9px",
-                  fontSize: "28px",
-                }}
-              >
-                {orderCount}
-              </strong>
-
-              <div
-                style={{
-                  marginTop: "5px",
-                  color: "#6d7175",
-                  fontSize: "13px",
-                }}
-              >
-                Pendentes de exportação
-              </div>
-            </div>
-
-            <div
-              style={{
-                background: "#ffffff",
-                border: "1px solid #e1e3e5",
-                borderRadius: "16px",
-                padding: "20px",
-                boxShadow: "0 6px 20px rgba(0,0,0,.035)",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: "11px",
-                  fontWeight: 700,
-                  color: "#8c9196",
-                  letterSpacing: ".05em",
-                }}
-              >
-                VALOR PENDENTE
-              </div>
-
-              <strong
-                style={{
-                  display: "block",
-                  marginTop: "9px",
-                  fontSize: "24px",
-                }}
-              >
-                {valueLabel}
-              </strong>
-
-              <div
-                style={{
-                  marginTop: "5px",
-                  color: "#6d7175",
-                  fontSize: "13px",
-                }}
-              >
-                Valor total das encomendas
-              </div>
-            </div>
-
-            <div
-              style={{
-                background: "#ffffff",
-                border: "1px solid #e1e3e5",
-                borderRadius: "16px",
-                padding: "20px",
-                boxShadow: "0 6px 20px rgba(0,0,0,.035)",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: "11px",
-                  fontWeight: 700,
-                  color: "#8c9196",
-                  letterSpacing: ".05em",
-                }}
-              >
-                ESTADO
-              </div>
-
-              <strong
-                style={{
-                  display: "block",
-                  marginTop: "9px",
-                  fontSize: "24px",
-                  color: licensed ? "#18794e" : "#a61b1b",
-                }}
-              >
-                {licensed ? "Ativa" : "Inativa"}
-              </strong>
-
-              <div
-                style={{
-                  marginTop: "5px",
-                  color: "#6d7175",
-                  fontSize: "13px",
-                }}
-              >
-                Loja ligada ao SellForge
-              </div>
-            </div>
+            ))}
           </div>
 
-          {/* HERO EXPORT */}
-          <div
+          <section
             style={{
-              position: "relative",
-              overflow: "hidden",
-              borderRadius: "20px",
               background:
                 "linear-gradient(135deg, #102c24 0%, #071b16 100%)",
+              borderRadius: "20px",
+              padding: "28px",
               color: "#ffffff",
-              padding: "34px",
-              minHeight: "230px",
-              boxShadow: "0 12px 35px rgba(6,35,26,.18)",
             }}
           >
             <div
               style={{
-                position: "absolute",
-                width: "340px",
-                height: "340px",
-                borderRadius: "50%",
-                background:
-                  "radial-gradient(circle, rgba(77,208,133,.16), transparent 68%)",
-                right: "-40px",
-                top: "-90px",
-              }}
-            />
-
-            <div
-              style={{
-                position: "relative",
-                zIndex: 2,
-                maxWidth: "620px",
+                fontSize: "11px",
+                fontWeight: 800,
+                color: "#8ee7a8",
+                letterSpacing: ".07em",
               }}
             >
-              <div
-                style={{
-                  display: "inline-flex",
-                  padding: "5px 9px",
-                  borderRadius: "999px",
-                  background: "rgba(90,210,130,.12)",
-                  color: "#8ee7a8",
-                  fontSize: "11px",
-                  fontWeight: 800,
-                  letterSpacing: ".05em",
-                }}
-              >
-                EXPORTAÇÃO
-              </div>
-
-              <h2
-                style={{
-                  margin: "16px 0 8px",
-                  fontSize: "30px",
-                }}
-              >
-                Pronto para exportar
-              </h2>
-
-              <p
-                style={{
-                  margin: 0,
-                  color: "#d3ded9",
-                  lineHeight: 1.6,
-                  maxWidth: "540px",
-                }}
-              >
-                Tem {orderCount} encomenda
-                {orderCount === 1 ? "" : "s"} pendente
-                {orderCount === 1 ? "" : "s"}.
-                Selecione e exporte diretamente para o formato Excel
-                da transportadora.
-              </p>
-
-              {licensed ? (
-                <Link
-                  to="/app/export"
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    marginTop: "24px",
-                    padding: "12px 19px",
-                    background:
-                      "linear-gradient(135deg, #78d954, #48b84c)",
-                    color: "#082015",
-                    borderRadius: "10px",
-                    textDecoration: "none",
-                    fontWeight: 800,
-                    boxShadow: "0 8px 20px rgba(78,190,83,.25)",
-                  }}
-                >
-                  Exportar encomendas →
-                </Link>
-              ) : (
-                <div
-                  style={{
-                    display: "inline-flex",
-                    marginTop: "24px",
-                    padding: "12px 18px",
-                    borderRadius: "10px",
-                    background: "rgba(255,255,255,.08)",
-                    color: "#ffffff",
-                  }}
-                >
-                  Licença inativa
-                </div>
-              )}
+              TRANSPORTADORAS
             </div>
-          </div>
+            <h2 style={{ margin: "8px 0 6px", fontSize: "27px" }}>
+              Centro de exportação
+            </h2>
+            <p
+              style={{
+                margin: 0,
+                maxWidth: "650px",
+                color: "#d3ded9",
+                lineHeight: 1.6,
+              }}
+            >
+              O acesso a cada transportadora é controlado individualmente
+              pelo administrador da SellForge.
+            </p>
+          </section>
 
-          {/* INFO */}
           <div
             style={{
-              background: "#ffffff",
-              border: "1px solid #e1e3e5",
-              borderRadius: "16px",
-              padding: "22px",
+              display: "grid",
+              gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+              gap: "16px",
             }}
           >
-            <div
-              style={{
-                fontWeight: 800,
-                fontSize: "15px",
-                marginBottom: "13px",
-              }}
-            >
-              Fluxo de exportação
-            </div>
+            <CarrierCard
+              name="Trilhos"
+              description="Gere o ficheiro Excel ATT_IMPORT com as encomendas selecionadas."
+              enabled={accountAllowed && trilhosEnabled}
+              available
+              href="/app/export"
+            />
 
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-                gap: "14px",
-              }}
-            >
-              {[
-                ["01", "Abrir encomendas"],
-                ["02", "Selecionar pedidos"],
-                ["03", "Gerar Excel"],
-                ["04", "Importar na transportadora"],
-              ].map(([number, label]) => (
-                <div
-                  key={number}
-                  style={{
-                    padding: "14px",
-                    background: "#f8f9f8",
-                    borderRadius: "11px",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: "11px",
-                      fontWeight: 800,
-                      color: "#18794e",
-                      marginBottom: "6px",
-                    }}
-                  >
-                    {number}
-                  </div>
+            <CarrierCard
+              name="CTT"
+              description="Integração dedicada aos envios CTT."
+              enabled={accountAllowed && cttEnabled}
+              available={false}
+              badge={
+                accountAllowed && cttEnabled
+                  ? "ACESSO ATRIBUÍDO"
+                  : "SEM ACESSO"
+              }
+            />
 
-                  <div
-                    style={{
-                      fontSize: "13px",
-                      fontWeight: 600,
-                      color: "#383838",
-                    }}
-                  >
-                    {label}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <CarrierCard
+              name="UPS"
+              description="Integração dedicada aos envios UPS."
+              enabled={accountAllowed && upsEnabled}
+              available={false}
+              badge={
+                accountAllowed && upsEnabled
+                  ? "ACESSO ATRIBUÍDO"
+                  : "SEM ACESSO"
+              }
+            />
           </div>
         </div>
       </s-section>
@@ -553,8 +579,6 @@ export default function Dashboard() {
   );
 }
 
-export const headers: HeadersFunction = (
-  headersArgs,
-) => {
+export const headers: HeadersFunction = (headersArgs) => {
   return boundary.headers(headersArgs);
 };

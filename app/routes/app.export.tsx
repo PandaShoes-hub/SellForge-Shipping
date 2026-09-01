@@ -4,7 +4,10 @@ import { Link, useLoaderData } from "react-router";
 
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
-import { isShopLicensed } from "../utils/license.server";
+import {
+  getLicenseStatus,
+  registerLicenseAccess,
+} from "../utils/license.server";
 
 type Order = {
   id: string;
@@ -19,17 +22,21 @@ type Order = {
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
+  const license = await getLicenseStatus(session.shop);
 
-  const licensed = isShopLicensed(session.shop);
+  const trilhosAllowed =
+    license.allowed && license.trilhosEnabled;
 
-  if (!licensed) {
+  if (!trilhosAllowed) {
     return {
-      licensed: false,
+      trilhosAllowed: false,
       shop: session.shop,
       orders: [] as Order[],
       accessError: false,
     };
   }
+
+  await registerLicenseAccess(session.shop);
 
   try {
     const response = await admin.graphql(`
@@ -64,12 +71,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     `);
 
     const json = await response.json();
-
     const edges = json?.data?.orders?.edges ?? [];
 
     const orders: Order[] = edges.map((edge: any) => {
       const order = edge.node;
-
       const amount = Number(
         order.totalPriceSet?.shopMoney?.amount || 0,
       );
@@ -85,28 +90,24 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         note: order.note || "",
         totalNumber: amount,
         total: `${amount.toFixed(2)} ${currency}`,
-        createdAt: new Date(
-          order.createdAt,
-        ).toLocaleDateString("pt-PT"),
-        country:
-          order.shippingAddress?.countryCodeV2 || "",
+        createdAt: new Date(order.createdAt).toLocaleDateString(
+          "pt-PT",
+        ),
+        country: order.shippingAddress?.countryCodeV2 || "",
       };
     });
 
     return {
-      licensed: true,
+      trilhosAllowed: true,
       shop: session.shop,
       orders,
       accessError: false,
     };
   } catch (error) {
-    console.error(
-      "Erro ao carregar encomendas Shopify:",
-      error,
-    );
+    console.error("Erro ao carregar encomendas Shopify:", error);
 
     return {
-      licensed: true,
+      trilhosAllowed: true,
       shop: session.shop,
       orders: [] as Order[],
       accessError: true,
@@ -117,13 +118,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 function countryLabel(country: string) {
   if (country === "ES") return "Espanha";
   if (country === "PT") return "Portugal";
-
   return country || "País não definido";
 }
 
 export default function ExportPage() {
   const {
-    licensed,
+    trilhosAllowed,
     shop,
     orders,
     accessError,
@@ -131,14 +131,13 @@ export default function ExportPage() {
 
   const [selectedOrders, setSelectedOrders] =
     useState<string[]>([]);
-
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
 
   const filteredOrders = useMemo(() => {
     const value = search.toLowerCase().trim();
-
     if (!value) return orders;
 
     return orders.filter(
@@ -154,13 +153,8 @@ export default function ExportPage() {
 
   const selectedTotal = useMemo(() => {
     return orders
-      .filter((order) =>
-        selectedOrders.includes(order.id),
-      )
-      .reduce(
-        (sum, order) => sum + order.totalNumber,
-        0,
-      );
+      .filter((order) => selectedOrders.includes(order.id))
+      .reduce((sum, order) => sum + order.totalNumber, 0);
   }, [orders, selectedOrders]);
 
   function toggleOrder(orderId: string) {
@@ -176,27 +170,18 @@ export default function ExportPage() {
   function toggleAll() {
     if (loading) return;
 
-    const visibleIds = filteredOrders.map(
-      (order) => order.id,
-    );
-
+    const visibleIds = filteredOrders.map((order) => order.id);
     const allSelected =
       visibleIds.length > 0 &&
-      visibleIds.every((id) =>
-        selectedOrders.includes(id),
-      );
+      visibleIds.every((id) => selectedOrders.includes(id));
 
     if (allSelected) {
       setSelectedOrders((current) =>
-        current.filter(
-          (id) => !visibleIds.includes(id),
-        ),
+        current.filter((id) => !visibleIds.includes(id)),
       );
     } else {
       setSelectedOrders((current) =>
-        Array.from(
-          new Set([...current, ...visibleIds]),
-        ),
+        Array.from(new Set([...current, ...visibleIds])),
       );
     }
   }
@@ -206,53 +191,60 @@ export default function ExportPage() {
 
     setLoading(true);
     setSuccess(false);
+    setErrorMessage("");
 
     try {
-      const response = await fetch(
-        "/api/export-selected",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            orderIds: selectedOrders,
-          }),
+      const response = await fetch("/api/export-selected", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
-      );
+        body: JSON.stringify({
+          carrier: "trilhos",
+          orderIds: selectedOrders,
+        }),
+      });
 
       if (!response.ok) {
-        throw new Error(
-          `Erro ao exportar: ${response.status}`,
-        );
+        let message = `Erro ao exportar: ${response.status}`;
+
+        try {
+          const data = await response.json();
+          if (data?.error) message = data.error;
+        } catch {
+          // resposta não JSON
+        }
+
+        throw new Error(message);
       }
 
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
-
       const link = document.createElement("a");
 
       link.href = url;
-      link.download = "SELLFORGE_SHIPPING.xlsx";
+      link.download = "ATT_IMPORT.xlsx";
 
       document.body.appendChild(link);
       link.click();
       link.remove();
-
       URL.revokeObjectURL(url);
 
       setSuccess(true);
     } catch (error) {
-      console.error(
-        "Erro ao exportar encomendas:",
-        error,
-      );
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Não foi possível exportar.";
+
+      setErrorMessage(message);
+      console.error("Erro ao exportar encomendas:", error);
     } finally {
       setLoading(false);
     }
   }
 
-  if (!licensed) {
+  if (!trilhosAllowed) {
     return (
       <s-page heading="SellForge Shipping">
         <s-section>
@@ -267,16 +259,16 @@ export default function ExportPage() {
               textAlign: "center",
             }}
           >
-            <h2>Licença inativa</h2>
-
-            <p style={{ color: "#616161" }}>
-              A loja <strong>{shop}</strong> não tem
-              acesso ativo ao SellForge Shipping.
+            <div style={{ fontSize: "36px" }}>🔒</div>
+            <h2>Sem acesso à Trilhos</h2>
+            <p style={{ color: "#616161", lineHeight: 1.6 }}>
+              A loja <strong>{shop}</strong> não tem autorização
+              para utilizar a exportação Trilhos.
             </p>
-
-            <Link to="/app">
-              Voltar ao Dashboard
-            </Link>
+            <p style={{ color: "#6d7175", fontSize: "13px" }}>
+              O acesso é atribuído pelo administrador da SellForge.
+            </p>
+            <Link to="/app">Voltar ao Dashboard</Link>
           </div>
         </s-section>
       </s-page>
@@ -294,7 +286,6 @@ export default function ExportPage() {
             gap: "20px",
           }}
         >
-          {/* HEADER */}
           <div
             style={{
               display: "flex",
@@ -311,61 +302,63 @@ export default function ExportPage() {
                   color: "#18794e",
                   textDecoration: "none",
                   fontSize: "13px",
-                  fontWeight: 600,
+                  fontWeight: 700,
                 }}
               >
                 ← Voltar ao Dashboard
               </Link>
 
+              <div
+                style={{
+                  marginTop: "18px",
+                  display: "inline-flex",
+                  padding: "5px 9px",
+                  borderRadius: "999px",
+                  background: "#e8f5ec",
+                  color: "#18794e",
+                  fontSize: "11px",
+                  fontWeight: 850,
+                }}
+              >
+                TRILHOS
+              </div>
+
               <h1
                 style={{
-                  margin: "14px 0 5px",
+                  margin: "10px 0 5px",
                   fontSize: "31px",
                 }}
               >
                 Exportar encomendas
               </h1>
 
-              <p
-                style={{
-                  margin: 0,
-                  color: "#616161",
-                }}
-              >
-                Selecione as encomendas pendentes e gere o
-                ficheiro Excel da transportadora.
+              <p style={{ margin: 0, color: "#616161" }}>
+                Selecione as encomendas e gere o ficheiro ATT_IMPORT.xlsx.
               </p>
             </div>
 
             <button
               type="button"
               onClick={exportSelected}
-              disabled={
-                selectedOrders.length === 0 ||
-                loading
-              }
+              disabled={selectedOrders.length === 0 || loading}
               style={{
-                minWidth: "165px",
+                minWidth: "175px",
                 padding: "13px 19px",
                 border: 0,
                 borderRadius: "11px",
                 background:
                   selectedOrders.length === 0
                     ? "#e3e5e4"
-                    : "#092c22",
+                    : "#102c24",
                 color:
                   selectedOrders.length === 0
                     ? "#8c9196"
                     : "#ffffff",
-                fontWeight: 800,
+                fontWeight: 850,
                 cursor:
                   selectedOrders.length === 0
                     ? "not-allowed"
                     : "pointer",
-                boxShadow:
-                  selectedOrders.length === 0
-                    ? "none"
-                    : "0 7px 18px rgba(9,44,34,.16)",
               }}
             >
               {loading
@@ -398,16 +391,29 @@ export default function ExportPage() {
                 fontWeight: 700,
               }}
             >
-              Excel exportado com sucesso.
+              ATT_IMPORT.xlsx exportado com sucesso.
             </div>
           )}
 
-          {/* STATS */}
+          {errorMessage && (
+            <div
+              style={{
+                padding: "14px 17px",
+                background: "#fff1f0",
+                border: "1px solid #f0b8b5",
+                borderRadius: "12px",
+                color: "#8a1f17",
+                fontWeight: 700,
+              }}
+            >
+              {errorMessage}
+            </div>
+          )}
+
           <div
             style={{
               display: "grid",
-              gridTemplateColumns:
-                "repeat(3, minmax(0, 1fr))",
+              gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
               gap: "14px",
             }}
           >
@@ -420,7 +426,7 @@ export default function ExportPage() {
               {
                 label: "SELECIONADAS",
                 value: selectedOrders.length,
-                detail: "Selecionadas",
+                detail: "Para exportar",
               },
               {
                 label: "VALOR SELECIONADO",
@@ -435,8 +441,6 @@ export default function ExportPage() {
                   border: "1px solid #e1e3e5",
                   borderRadius: "16px",
                   padding: "20px",
-                  boxShadow:
-                    "0 6px 20px rgba(0,0,0,.035)",
                 }}
               >
                 <div
@@ -473,7 +477,6 @@ export default function ExportPage() {
             ))}
           </div>
 
-          {/* SEARCH */}
           <div
             style={{
               display: "flex",
@@ -521,14 +524,12 @@ export default function ExportPage() {
             </button>
           </div>
 
-          {/* ORDERS */}
           <div
             style={{
               background: "#ffffff",
               border: "1px solid #e1e3e5",
               borderRadius: "16px",
               overflow: "hidden",
-              boxShadow: "0 8px 24px rgba(0,0,0,.035)",
             }}
           >
             <div
@@ -542,7 +543,6 @@ export default function ExportPage() {
                 fontSize: "11px",
                 fontWeight: 800,
                 color: "#6d7175",
-                letterSpacing: ".04em",
               }}
             >
               <span />
@@ -550,52 +550,18 @@ export default function ExportPage() {
               <span>CLIENTE</span>
               <span>DESTINO</span>
               <span>DATA</span>
-              <span style={{ textAlign: "right" }}>
-                TOTAL
-              </span>
+              <span style={{ textAlign: "right" }}>TOTAL</span>
             </div>
 
             {filteredOrders.length === 0 ? (
               <div
                 style={{
-                  padding: "65px 20px",
+                  padding: "60px 20px",
                   textAlign: "center",
+                  color: "#6d7175",
                 }}
               >
-                <div
-                  style={{
-                    width: "52px",
-                    height: "52px",
-                    margin: "0 auto 16px",
-                    borderRadius: "50%",
-                    background: "#eaf5ed",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: "#18794e",
-                    fontWeight: 800,
-                  }}
-                >
-                  SF
-                </div>
-
-                <h3
-                  style={{
-                    margin: 0,
-                    fontSize: "19px",
-                  }}
-                >
-                  Ainda não existem encomendas
-                </h3>
-
-                <p
-                  style={{
-                    margin: "7px 0 0",
-                    color: "#6d7175",
-                  }}
-                >
-                  As encomendas pendentes aparecerão aqui.
-                </p>
+                Nenhuma encomenda disponível.
               </div>
             ) : (
               filteredOrders.map((order) => {
@@ -611,61 +577,25 @@ export default function ExportPage() {
                         "52px 120px 1fr 140px 130px 140px",
                       gap: "12px",
                       alignItems: "center",
-                      padding: "17px 18px",
-                      borderTop: "1px solid #eeeeee",
+                      padding: "15px 18px",
+                      borderTop: "1px solid #eceeed",
                       background: selected
-                        ? "#f2f9f4"
+                        ? "#f1faf3"
                         : "#ffffff",
-                      cursor: loading
-                        ? "not-allowed"
-                        : "pointer",
-                      transition: "background .15s ease",
+                      cursor: "pointer",
                     }}
                   >
                     <input
                       type="checkbox"
                       checked={selected}
                       disabled={loading}
-                      onChange={() =>
-                        toggleOrder(order.id)
-                      }
+                      onChange={() => toggleOrder(order.id)}
                     />
-
                     <strong>{order.name}</strong>
-
-                    <div>
-                      <div
-                        style={{
-                          fontWeight: 700,
-                        }}
-                      >
-                        {order.customerName}
-                      </div>
-
-                      {order.note && (
-                        <div
-                          style={{
-                            marginTop: "4px",
-                            color: "#8c6a00",
-                            fontSize: "12px",
-                          }}
-                        >
-                          {order.note}
-                        </div>
-                      )}
-                    </div>
-
-                    <span>
-                      {countryLabel(order.country)}
-                    </span>
-
+                    <span>{order.customerName}</span>
+                    <span>{countryLabel(order.country)}</span>
                     <span>{order.createdAt}</span>
-
-                    <strong
-                      style={{
-                        textAlign: "right",
-                      }}
-                    >
+                    <strong style={{ textAlign: "right" }}>
                       {order.total}
                     </strong>
                   </label>
@@ -679,8 +609,6 @@ export default function ExportPage() {
   );
 }
 
-export const headers: HeadersFunction = (
-  headersArgs,
-) => {
+export const headers: HeadersFunction = (headersArgs) => {
   return boundary.headers(headersArgs);
 };
