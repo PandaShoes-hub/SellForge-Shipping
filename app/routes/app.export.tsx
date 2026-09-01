@@ -54,7 +54,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
               name
               note
               createdAt
-              totalPriceSet {
+              currentTotalPriceSet {
                 shopMoney {
                   amount
                   currencyCode
@@ -76,11 +76,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     const orders: Order[] = edges.map((edge: any) => {
       const order = edge.node;
       const amount = Number(
-        order.totalPriceSet?.shopMoney?.amount || 0,
+        order.currentTotalPriceSet?.shopMoney?.amount || 0,
       );
 
       const currency =
-        order.totalPriceSet?.shopMoney?.currencyCode || "EUR";
+        order.currentTotalPriceSet?.shopMoney?.currencyCode || "EUR";
 
       return {
         id: order.id,
@@ -223,7 +223,7 @@ export default function ExportPage() {
       const link = document.createElement("a");
 
       link.href = url;
-      link.download = "ATT_IMPORT.xlsx";
+      link.download = "SELLFORGE_EXPORT.xlsx";
 
       document.body.appendChild(link);
       link.click();
@@ -391,7 +391,7 @@ export default function ExportPage() {
                 fontWeight: 700,
               }}
             >
-              ATT_IMPORT.xlsx exportado com sucesso.
+              Ficheiro Excel da SellForge exportado com sucesso.
             </div>
           )}
 

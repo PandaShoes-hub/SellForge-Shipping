@@ -71,7 +71,7 @@ export async function action({ request }: ActionFunctionArgs) {
             name
             email
             phone
-            totalPriceSet {
+            currentTotalPriceSet {
               shopMoney {
                 amount
                 currencyCode
@@ -131,6 +131,16 @@ export async function action({ request }: ActionFunctionArgs) {
             "Não foi possível carregar as encomendas selecionadas.",
         },
         { status: 404 },
+      );
+    }
+
+    if (orders.length !== orderIds.length) {
+      return Response.json(
+        {
+          error:
+            "Uma ou mais encomendas foram alteradas, removidas ou já não estão disponíveis. Atualize a página e tente novamente.",
+        },
+        { status: 409 },
       );
     }
 
@@ -203,13 +213,25 @@ export async function action({ request }: ActionFunctionArgs) {
         phone = `+351${phone}`;
       }
 
-      const total = Number(
-        order.totalPriceSet?.shopMoney?.amount || 0,
-      );
+      const totalRaw =
+        order.currentTotalPriceSet?.shopMoney?.amount;
+
+      const total = Number(totalRaw);
+
+      if (
+        totalRaw === null ||
+        totalRaw === undefined ||
+        totalRaw === "" ||
+        !Number.isFinite(total) ||
+        total < 0
+      ) {
+        throw new Error(
+          `Total atual inválido na encomenda ${order.name}.`,
+        );
+      }
 
       row.getCell(1).value = order.name;
-      row.getCell(2).value =
-        Number.isFinite(total) ? total : 0;
+      row.getCell(2).value = total;
       row.getCell(3).value = customerName;
       row.getCell(4).value = fullAddress;
 

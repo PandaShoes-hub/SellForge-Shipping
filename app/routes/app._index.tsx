@@ -77,7 +77,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         ) {
           edges {
             node {
-              totalPriceSet {
+              currentTotalPriceSet {
                 shopMoney {
                   amount
                   currencyCode
@@ -93,9 +93,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     const edges = json?.data?.orders?.edges ?? [];
 
     const orders: DashboardOrder[] = edges.map((edge: any) => ({
-      amount: Number(edge.node?.totalPriceSet?.shopMoney?.amount || 0),
+      amount: Number(edge.node?.currentTotalPriceSet?.shopMoney?.amount || 0),
       currency:
-        edge.node?.totalPriceSet?.shopMoney?.currencyCode || "EUR",
+        edge.node?.currentTotalPriceSet?.shopMoney?.currencyCode || "EUR",
     }));
 
     const totalsByCurrency = orders.reduce<Record<string, number>>(
