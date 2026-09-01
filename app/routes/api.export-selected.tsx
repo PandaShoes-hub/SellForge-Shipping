@@ -251,7 +251,7 @@ export async function action({ request }: ActionFunctionArgs) {
       row.getCell(13).value = "";
       row.getCell(14).value = customerName;
       row.getCell(15).value =
-        country === "PT" ? "24PT" : "24ES";
+        country === "PT" ? "GOLD" : "24ES";
     });
 
     const firstDataRow = worksheet.getRow(2);
