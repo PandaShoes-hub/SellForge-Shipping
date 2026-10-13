@@ -200,6 +200,7 @@ export const action = async ({
       );
 
       const trilhosEnabled = formData.get("trilhosEnabled") === "on";
+      const nextlogEnabled = formData.get("nextlogEnabled") === "on";
       const cttEnabled = formData.get("cttEnabled") === "on";
       const upsEnabled = formData.get("upsEnabled") === "on";
 
@@ -231,6 +232,7 @@ export const action = async ({
           expiresAt: parseExpiryDate(expiresAtValue),
           active: true,
           trilhosEnabled,
+          nextlogEnabled,
           cttEnabled,
           upsEnabled,
         },
@@ -276,7 +278,7 @@ export const action = async ({
       const id = String(formData.get("id") || "");
       const carrier = String(formData.get("carrier") || "");
 
-      if (!["trilhos", "ctt", "ups"].includes(carrier)) {
+      if (!["trilhos", "nextlog", "ctt", "ups"].includes(carrier)) {
         return {
           error: "Transportadora inválida.",
         };
@@ -295,9 +297,11 @@ export const action = async ({
       const field =
         carrier === "trilhos"
           ? "trilhosEnabled"
-          : carrier === "ctt"
-            ? "cttEnabled"
-            : "upsEnabled";
+          : carrier === "nextlog"
+            ? "nextlogEnabled"
+            : carrier === "ctt"
+              ? "cttEnabled"
+              : "upsEnabled";
 
       const currentValue = license[field];
 
@@ -309,11 +313,33 @@ export const action = async ({
       });
 
       const carrierName =
-        carrier === "trilhos" ? "Trilhos" : carrier === "ctt" ? "CTT" : "UPS";
+        carrier === "trilhos" ? "Trilhos" : carrier === "nextlog" ? "NextLog" : carrier === "ctt" ? "CTT" : "UPS";
 
       return {
         success: `${carrierName} ${currentValue ? "desativada" : "ativada"} para ${license.company || license.shop}.`,
       };
+    }
+
+    if (intent === "saveNextlogServices") {
+      const id = String(formData.get("id") || "");
+      const pt = String(formData.get("nextlogPtService") || "").trim().toUpperCase();
+      const es = String(formData.get("nextlogEsService") || "").trim().toUpperCase();
+
+      // Códigos de serviço válidos para exportação Excel.
+      const validCode = /^[A-Z0-9_-]{1,32}$/;
+      if (!validCode.test(pt) || !validCode.test(es)) {
+        return { error: "Os serviços NextLog devem ter entre 1 e 32 letras, números, _ ou -." };
+      }
+
+      await prisma.license.update({
+        where: { id },
+        data: {
+          nextlogPtService: pt,
+          nextlogEsService: es,
+        },
+      });
+
+      return { success: "Serviços NextLog atualizados." };
     }
 
     if (intent === "renew") {
@@ -668,6 +694,11 @@ export default function SellForgeAdmin() {
               </label>
 
               <label style={carrierCheckboxLabelStyle}>
+                <input type="checkbox" name="nextlogEnabled" />
+                NextLog
+              </label>
+
+              <label style={carrierCheckboxLabelStyle}>
                 <input type="checkbox" name="cttEnabled" />
                 CTT
               </label>
@@ -769,6 +800,8 @@ export default function SellForgeAdmin() {
                     <TableHeader>Loja</TableHeader>
                     <TableHeader>Estado</TableHeader>
                     <TableHeader>Trilhos</TableHeader>
+                    <TableHeader>NextLog</TableHeader>
+                    <TableHeader>Serviços NextLog</TableHeader>
                     <TableHeader>CTT</TableHeader>
                     <TableHeader>UPS</TableHeader>
                     <TableHeader>Validade</TableHeader>
@@ -877,6 +910,43 @@ export default function SellForgeAdmin() {
                             enabled={license.trilhosEnabled}
                             disabled={!active}
                           />
+                        </TableCell>
+
+                        <TableCell>
+                          <CarrierToggle
+                            id={license.id}
+                            carrier="nextlog"
+                            enabled={license.nextlogEnabled}
+                            disabled={!active}
+                          />
+                        </TableCell>
+
+                        <TableCell>
+                          <Form method="post" style={{ display: "grid", gap: "6px", minWidth: "148px" }}>
+                            <input type="hidden" name="intent" value="saveNextlogServices" />
+                            <input type="hidden" name="id" value={license.id} />
+                            <label style={{ fontSize: "11px", fontWeight: 700 }}>
+                              Portugal
+                              <input
+                                name="nextlogPtService"
+                                defaultValue={license.nextlogPtService}
+                                maxLength={32}
+                                required
+                                style={{ ...inputStyle, marginTop: "3px", padding: "6px" }}
+                              />
+                            </label>
+                            <label style={{ fontSize: "11px", fontWeight: 700 }}>
+                              Espanha
+                              <input
+                                name="nextlogEsService"
+                                defaultValue={license.nextlogEsService}
+                                maxLength={32}
+                                required
+                                style={{ ...inputStyle, marginTop: "3px", padding: "6px" }}
+                              />
+                            </label>
+                            <button type="submit" style={smallButtonStyle}>Guardar serviços</button>
+                          </Form>
                         </TableCell>
 
                         <TableCell>
@@ -1050,12 +1120,12 @@ function CarrierToggle({
   disabled,
 }: {
   id: string;
-  carrier: "trilhos" | "ctt" | "ups";
+  carrier: "trilhos" | "nextlog" | "ctt" | "ups";
   enabled: boolean;
   disabled: boolean;
 }) {
   const carrierName =
-    carrier === "trilhos" ? "Trilhos" : carrier === "ctt" ? "CTT" : "UPS";
+    carrier === "trilhos" ? "Trilhos" : carrier === "nextlog" ? "NextLog" : carrier === "ctt" ? "CTT" : "UPS";
 
   return (
     <Form method="post">

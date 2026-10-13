@@ -55,6 +55,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       company,
       accountAllowed: false,
       trilhosEnabled: false,
+      nextlogEnabled: false,
       cttEnabled: false,
       upsEnabled: false,
       orderCount: 0,
@@ -115,6 +116,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       company,
       accountAllowed: true,
       trilhosEnabled: license.trilhosEnabled,
+      nextlogEnabled: license.nextlogEnabled,
       cttEnabled: license.cttEnabled,
       upsEnabled: license.upsEnabled,
       orderCount: orders.length,
@@ -129,6 +131,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       company,
       accountAllowed: true,
       trilhosEnabled: license.trilhosEnabled,
+      nextlogEnabled: license.nextlogEnabled,
       cttEnabled: license.cttEnabled,
       upsEnabled: license.upsEnabled,
       orderCount: 0,
@@ -271,6 +274,7 @@ export default function Dashboard() {
     company,
     accountAllowed,
     trilhosEnabled,
+    nextlogEnabled,
     cttEnabled,
     upsEnabled,
     orderCount,
@@ -537,7 +541,7 @@ export default function Dashboard() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(235px, 1fr))",
               gap: "16px",
             }}
           >
@@ -547,6 +551,14 @@ export default function Dashboard() {
               enabled={accountAllowed && trilhosEnabled}
               available
               href="/app/export"
+            />
+
+            <CarrierCard
+              name="NextLog"
+              description="Exporte para a NextLog no mesmo formato Excel, com serviços próprios para PT e ES."
+              enabled={accountAllowed && nextlogEnabled}
+              available
+              href="/app/export?carrier=nextlog"
             />
 
             <CarrierCard

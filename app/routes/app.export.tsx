@@ -23,13 +23,16 @@ type Order = {
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   const license = await getLicenseStatus(session.shop);
+  const carrier = new URL(request.url).searchParams.get("carrier") === "nextlog"
+    ? "nextlog"
+    : "trilhos";
+  const carrierAllowed = license.allowed &&
+    (carrier === "nextlog" ? license.nextlogEnabled : license.trilhosEnabled);
 
-  const trilhosAllowed =
-    license.allowed && license.trilhosEnabled;
-
-  if (!trilhosAllowed) {
+  if (!carrierAllowed) {
     return {
-      trilhosAllowed: false,
+      carrier,
+      carrierAllowed: false,
       shop: session.shop,
       orders: [] as Order[],
       accessError: false,
@@ -98,7 +101,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     });
 
     return {
-      trilhosAllowed: true,
+      carrier,
+      carrierAllowed: true,
       shop: session.shop,
       orders,
       accessError: false,
@@ -107,7 +111,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     console.error("Erro ao carregar encomendas Shopify:", error);
 
     return {
-      trilhosAllowed: true,
+      carrier,
+      carrierAllowed: true,
       shop: session.shop,
       orders: [] as Order[],
       accessError: true,
@@ -123,11 +128,14 @@ function countryLabel(country: string) {
 
 export default function ExportPage() {
   const {
-    trilhosAllowed,
+    carrierAllowed,
+    carrier,
     shop,
     orders,
     accessError,
   } = useLoaderData<typeof loader>();
+
+  const carrierName = carrier === "nextlog" ? "NextLog" : "Trilhos";
 
   const [selectedOrders, setSelectedOrders] =
     useState<string[]>([]);
@@ -200,7 +208,7 @@ export default function ExportPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          carrier: "trilhos",
+          carrier,
           orderIds: selectedOrders,
         }),
       });
@@ -223,7 +231,7 @@ export default function ExportPage() {
       const link = document.createElement("a");
 
       link.href = url;
-      link.download = "SELLFORGE_EXPORT.xlsx";
+      link.download = carrier === "nextlog" ? "SELLFORGE_NEXTLOG.xlsx" : "SELLFORGE_EXPORT.xlsx";
 
       document.body.appendChild(link);
       link.click();
@@ -244,7 +252,7 @@ export default function ExportPage() {
     }
   }
 
-  if (!trilhosAllowed) {
+  if (!carrierAllowed) {
     return (
       <s-page heading="SellForge Shipping">
         <s-section>
@@ -260,10 +268,10 @@ export default function ExportPage() {
             }}
           >
             <div style={{ fontSize: "36px" }}>🔒</div>
-            <h2>Sem acesso à Trilhos</h2>
+            <h2>Sem acesso à {carrierName}</h2>
             <p style={{ color: "#616161", lineHeight: 1.6 }}>
               A loja <strong>{shop}</strong> não tem autorização
-              para utilizar a exportação Trilhos.
+              para utilizar a exportação {carrierName}.
             </p>
             <p style={{ color: "#6d7175", fontSize: "13px" }}>
               O acesso é atribuído pelo administrador da SellForge.
@@ -320,7 +328,7 @@ export default function ExportPage() {
                   fontWeight: 850,
                 }}
               >
-                TRILHOS
+                {carrierName.toUpperCase()}
               </div>
 
               <h1
@@ -333,7 +341,7 @@ export default function ExportPage() {
               </h1>
 
               <p style={{ margin: 0, color: "#616161" }}>
-                Selecione as encomendas e gere o ficheiro Excel da SellForge.
+                Selecione as encomendas e gere o ficheiro Excel para a {carrierName}.
               </p>
             </div>
 
@@ -391,7 +399,7 @@ export default function ExportPage() {
                 fontWeight: 700,
               }}
             >
-              Ficheiro Excel da SellForge exportado com sucesso.
+              Ficheiro Excel da {carrierName} exportado com sucesso.
             </div>
           )}
 

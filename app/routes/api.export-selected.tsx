@@ -21,27 +21,26 @@ export async function action({ request }: ActionFunctionArgs) {
       );
     }
 
-    if (!license.trilhosEnabled) {
+    const body = await request.json();
+    const carrier = body?.carrier == null
+      ? "trilhos"
+      : String(body.carrier).trim().toLowerCase();
+
+    if (carrier !== "trilhos" && carrier !== "nextlog") {
       return Response.json(
-        {
-          error:
-            "Esta loja não tem autorização para utilizar a exportação Trilhos.",
-        },
-        { status: 403 },
+        { error: "Transportadora não suportada nesta exportação." },
+        { status: 400 },
       );
     }
 
-    const body = await request.json();
+    const enabled = carrier === "nextlog"
+      ? license.nextlogEnabled
+      : license.trilhosEnabled;
 
-    if (
-      body?.carrier &&
-      String(body.carrier).toLowerCase() !== "trilhos"
-    ) {
+    if (!enabled) {
       return Response.json(
-        {
-          error: "Transportadora não suportada nesta exportação.",
-        },
-        { status: 400 },
+        { error: `Esta loja não tem autorização para utilizar a exportação ${carrier === "nextlog" ? "NextLog" : "Trilhos"}.` },
+        { status: 403 },
       );
     }
 
@@ -99,7 +98,10 @@ export async function action({ request }: ActionFunctionArgs) {
       },
     );
 
-    const json = await response.json();
+    const json = (await response.json()) as {
+      data?: { nodes?: any[] };
+      errors?: Array<{ message?: string }>;
+    };
 
     if (json?.errors?.length) {
       console.error("Erro GraphQL Shopify:", json.errors);
@@ -142,6 +144,20 @@ export async function action({ request }: ActionFunctionArgs) {
         },
         { status: 409 },
       );
+    }
+
+    if (carrier === "nextlog") {
+      const unsupportedOrder = orders.find((order: any) => {
+        const country = String(order.shippingAddress?.countryCodeV2 || "").toUpperCase();
+        return country !== "PT" && country !== "ES";
+      });
+
+      if (unsupportedOrder) {
+        return Response.json(
+          { error: `NextLog: a encomenda ${unsupportedOrder.name} não tem destino Portugal ou Espanha válido.` },
+          { status: 422 },
+        );
+      }
     }
 
     const templatePath = path.join(
@@ -250,8 +266,10 @@ export async function action({ request }: ActionFunctionArgs) {
       row.getCell(12).value = order.email || "";
       row.getCell(13).value = "";
       row.getCell(14).value = customerName;
-      row.getCell(15).value =
-        country === "PT" ? "GOLD" : "24ES";
+      // Trilhos continua com GOLD / 24ES; NextLog tem códigos independentes.
+      row.getCell(15).value = carrier === "nextlog"
+        ? (country === "PT" ? license.nextlogPtService : license.nextlogEsService)
+        : (country === "PT" ? "GOLD" : "24ES");
     });
 
     const firstDataRow = worksheet.getRow(2);
@@ -274,7 +292,9 @@ export async function action({ request }: ActionFunctionArgs) {
         "Content-Type":
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "Content-Disposition":
-          'attachment; filename="SELLFORGE_EXPORT.xlsx"',
+          carrier === "nextlog"
+            ? 'attachment; filename="SELLFORGE_NEXTLOG.xlsx"'
+            : 'attachment; filename="SELLFORGE_EXPORT.xlsx"',
         "Cache-Control":
           "no-store, no-cache, must-revalidate",
       },

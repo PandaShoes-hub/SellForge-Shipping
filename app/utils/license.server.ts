@@ -11,6 +11,9 @@ export type LicenseStatus = {
   company: string | null;
   expiresAt: Date | null;
   trilhosEnabled: boolean;
+  nextlogEnabled: boolean;
+  nextlogPtService: string;
+  nextlogEsService: string;
   cttEnabled: boolean;
   upsEnabled: boolean;
 };
@@ -21,6 +24,9 @@ function normalizeShop(shop: string): string {
 
 const noCarrierAccess = {
   trilhosEnabled: false,
+  nextlogEnabled: false,
+  nextlogPtService: "CTT48H",
+  nextlogEsService: "CTT24H",
   cttEnabled: false,
   upsEnabled: false,
 };
@@ -48,6 +54,7 @@ export async function getLicenseStatus(
         shop: normalizedShop,
         active: false,
         trilhosEnabled: false,
+        nextlogEnabled: false,
         cttEnabled: false,
         upsEnabled: false,
       },
@@ -71,6 +78,9 @@ export async function getLicenseStatus(
       company: license.company,
       expiresAt: license.expiresAt,
       trilhosEnabled: license.trilhosEnabled,
+      nextlogEnabled: license.nextlogEnabled,
+      nextlogPtService: license.nextlogPtService,
+      nextlogEsService: license.nextlogEsService,
       cttEnabled: license.cttEnabled,
       upsEnabled: license.upsEnabled,
     };
@@ -88,6 +98,9 @@ export async function getLicenseStatus(
       company: license.company,
       expiresAt: license.expiresAt,
       trilhosEnabled: license.trilhosEnabled,
+      nextlogEnabled: license.nextlogEnabled,
+      nextlogPtService: license.nextlogPtService,
+      nextlogEsService: license.nextlogEsService,
       cttEnabled: license.cttEnabled,
       upsEnabled: license.upsEnabled,
     };
@@ -100,6 +113,9 @@ export async function getLicenseStatus(
     company: license.company,
     expiresAt: license.expiresAt,
     trilhosEnabled: license.trilhosEnabled,
+    nextlogEnabled: license.nextlogEnabled,
+    nextlogPtService: license.nextlogPtService,
+    nextlogEsService: license.nextlogEsService,
     cttEnabled: license.cttEnabled,
     upsEnabled: license.upsEnabled,
   };
