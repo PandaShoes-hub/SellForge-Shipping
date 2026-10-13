@@ -1,27 +1,15 @@
 import type { ActionFunctionArgs } from "react-router";
 import ExcelJS from "exceljs";
-import {
-  NEXTLOG_HEADERS,
-  buildNextlogRow,
-  recipientName,
-  nextlogSender,
-  clean,
-  type NextlogOrder,
-  type NextlogShop,
-} from "../utils/nextlog-excel.server";
 import path from "node:path";
 
 import { authenticate } from "../shopify.server";
 import { getLicenseStatus } from "../utils/license.server";
 
 export async function action({ request }: ActionFunctionArgs) {
-  // Mostrar a etapa de falha sem expor tokens ou dados pessoais no ecrã.
-  let exportStage = "autenticação Shopify";
   try {
     const { admin, session } =
       await authenticate.admin(request);
 
-    exportStage = "verificação da licença";
     const license = await getLicenseStatus(session.shop);
 
     if (!license.allowed) {
@@ -33,26 +21,27 @@ export async function action({ request }: ActionFunctionArgs) {
       );
     }
 
-    const body = await request.json();
-    const carrier = body?.carrier == null
-      ? "trilhos"
-      : String(body.carrier).trim().toLowerCase();
-
-    if (carrier !== "trilhos" && carrier !== "nextlog") {
+    if (!license.trilhosEnabled) {
       return Response.json(
-        { error: "Transportadora não suportada nesta exportação." },
-        { status: 400 },
+        {
+          error:
+            "Esta loja não tem autorização para utilizar a exportação Trilhos.",
+        },
+        { status: 403 },
       );
     }
 
-    const enabled = carrier === "nextlog"
-      ? license.nextlogEnabled
-      : license.trilhosEnabled;
+    const body = await request.json();
 
-    if (!enabled) {
+    if (
+      body?.carrier &&
+      String(body.carrier).toLowerCase() !== "trilhos"
+    ) {
       return Response.json(
-        { error: `Esta loja não tem autorização para utilizar a exportação ${carrier === "nextlog" ? "NextLog" : "Trilhos"}.` },
-        { status: 403 },
+        {
+          error: "Transportadora não suportada nesta exportação.",
+        },
+        { status: 400 },
       );
     }
 
@@ -73,7 +62,6 @@ export async function action({ request }: ActionFunctionArgs) {
       );
     }
 
-    exportStage = "consulta das encomendas à Shopify";
     const response = await admin.graphql(
       `#graphql
       query GetOrders($ids: [ID!]!) {
@@ -83,7 +71,6 @@ export async function action({ request }: ActionFunctionArgs) {
             name
             email
             phone
-            currentTotalWeight
             currentTotalPriceSet {
               shopMoney {
                 amount
@@ -113,7 +100,7 @@ export async function action({ request }: ActionFunctionArgs) {
     );
 
     const json = (await response.json()) as {
-      data?: { nodes?: any[] };
+      data?: { nodes?: unknown[] };
       errors?: Array<{ message?: string }>;
     };
 
@@ -160,135 +147,27 @@ export async function action({ request }: ActionFunctionArgs) {
       );
     }
 
-    if (carrier === "nextlog") {
-      const unsupportedOrder = orders.find((order: any) => {
-        const country = String(order.shippingAddress?.countryCodeV2 || "").toUpperCase();
-        return country !== "PT" && country !== "ES";
-      });
+    const templatePath = path.join(
+      process.cwd(),
+      "public",
+      "ATT_IMPORT.xlsx",
+    );
 
-      if (unsupportedOrder) {
-        return Response.json(
-          { error: `NextLog: a encomenda ${unsupportedOrder.name} não tem destino Portugal ou Espanha válido.` },
-          { status: 422 },
-        );
-      }
-    }
-
-    // NextLog gera diretamente o MODELO CTT de 29 colunas (A:AC).
-    // Trilhos continua a abrir ATT_IMPORT.xlsx, sem alterações.
-    let shopInfo: NextlogShop | null = null;
-    if (carrier === "nextlog") {
-      exportStage = "consulta da morada do remetente na Shopify";
-      const shopResponse = await admin.graphql(`
-        #graphql
-        query SellForgeNextlogSender {
-          shop {
-            name
-            email
-            shopAddress: billingAddress {
-              company
-              address1
-              address2
-              zip
-              city
-              countryCodeV2
-              phone
-            }
-          }
-        }
-      `);
-      const shopJson = (await shopResponse.json()) as {
-        data?: { shop?: NextlogShop | null };
-        errors?: Array<{ message?: string }>;
-      };
-      if (shopJson.errors?.length || !shopJson.data?.shop) {
-        return Response.json(
-          { error: "NextLog: não foi possível obter os dados da loja na Shopify." },
-          { status: 502 },
-        );
-      }
-      shopInfo = shopJson.data.shop;
-
-      // O remetente é a loja Shopify, não campos manuais no Admin SellForge.
-      // Se faltarem dados essenciais, bloquear em vez de produzir um Excel trocado.
-      const sender = nextlogSender(shopInfo, license);
-      const missingOrigin = [
-        ["nome do remetente", sender.name],
-        ["morada do remetente", sender.address],
-        ["código postal do remetente", sender.postalCode],
-        ["localidade do remetente", sender.city],
-        ["país do remetente", sender.country],
-      ].filter(([, value]) => !clean(value));
-      if (missingOrigin.length) {
-        return Response.json(
-          { error: `NextLog: faltam ${missingOrigin.map(([field]) => field).join(", ")}. Verifica os dados do remetente na Shopify (morada de faturação da loja) ou os dados já guardados para NextLog.` },
-          { status: 422 },
-        );
-      }
-    }
-
-    exportStage = "preparação do Excel";
     const workbook = new ExcelJS.Workbook();
-    let worksheet: ExcelJS.Worksheet;
-    if (carrier === "nextlog") {
-      // Não usar o modelo de 27 colunas; a opção MODELO CTT mostra 29 colunas.
-      worksheet = workbook.addWorksheet("Listagem");
-      NEXTLOG_HEADERS.forEach((header, index) => {
-        worksheet.getRow(1).getCell(index + 1).value = header;
-      });
-    } else {
-      // O fluxo Trilhos permanece inalterado e continua a usar o modelo ATT_IMPORT.
-      const modelPath = path.join(process.cwd(), "public", "ATT_IMPORT.xlsx");
-      await workbook.xlsx.readFile(modelPath);
-      const existing = workbook.worksheets[0];
-      if (!existing) {
-        return Response.json({ error: "O modelo Excel Trilhos não contém nenhuma folha." }, { status: 500 });
-      }
-      worksheet = existing;
+    await workbook.xlsx.readFile(templatePath);
+
+    const worksheet = workbook.worksheets[0];
+
+    if (!worksheet) {
+      return Response.json(
+        {
+          error:
+            "O template Excel não contém nenhuma folha.",
+        },
+        { status: 500 },
+      );
     }
 
-    exportStage = "validação e preenchimento das colunas";
-    if (carrier === "nextlog") {
-      const exportDate = new Date().toISOString().slice(0, 10);
-      for (const [index, order] of (orders as NextlogOrder[]).entries()) {
-        const addr = order.shippingAddress;
-        const absent = [
-          ["nome", recipientName(order)],
-          ["morada", addr?.address1],
-          ["código postal", addr?.zip],
-          ["localidade", addr?.city],
-          ["telefone", addr?.phone || order.phone],
-        ].filter(([, value]) => !clean(value));
-        if (absent.length) {
-          return Response.json(
-            { error: `NextLog: faltam ${absent.map(([field]) => field).join(", ")} na encomenda ${order.name}. Corrige na Shopify e tenta novamente.` },
-            { status: 422 },
-          );
-        }
-        const amountRaw = order.currentTotalPriceSet?.shopMoney?.amount;
-        const amount = Number(amountRaw);
-        if (amountRaw === undefined || amountRaw === null || amountRaw === "" || !Number.isFinite(amount) || amount < 0) {
-          return Response.json(
-            { error: `NextLog: valor atual inválido na encomenda ${order.name}.` },
-            { status: 422 },
-          );
-        }
-
-        const values = buildNextlogRow(order, license, shopInfo!, exportDate);
-        const row = worksheet.getRow(index + 2);
-        // Escreve cada célula explicitamente (sem deslocar a primeira coluna).
-        values.forEach((value, cellIndex) => {
-          row.getCell(cellIndex + 1).value = value;
-        });
-        // Referência, códigos postais, telefones e países sempre como TEXTO.
-        // Não arredondar nem eliminar zeros iniciais / indicativos internacionais.
-        [4, 7, 9, 10, 11, 13, 16, 18, 19, 20, 21, 28].forEach((col) => {
-          row.getCell(col).numFmt = "@";
-        });
-        row.getCell(23).numFmt = "0.00"; // W Peso Real
-        row.getCell(25).numFmt = "0.00"; // Y Valor Reembolso
-      }
-    } else {
     orders.forEach((order: any, index: number) => {
       const row = worksheet.getRow(index + 2);
       const address = order.shippingAddress ?? {};
@@ -374,16 +253,15 @@ export async function action({ request }: ActionFunctionArgs) {
       row.getCell(12).value = order.email || "";
       row.getCell(13).value = "";
       row.getCell(14).value = customerName;
-      // Códigos Trilhos configuráveis por loja (padrão GOLD / 24ES).
-      row.getCell(15).value = country === "PT"
-        ? license.trilhosPtService
-        : license.trilhosEsService;
+      row.getCell(15).value =
+        country === "PT"
+          ? license.trilhosPtService
+          : license.trilhosEsService;
     });
-    }
 
     const firstDataRow = worksheet.getRow(2);
 
-    if (!firstDataRow.getCell(carrier === "nextlog" ? 4 : 1).value) {
+    if (!firstDataRow.getCell(1).value) {
       return Response.json(
         {
           error:
@@ -393,7 +271,6 @@ export async function action({ request }: ActionFunctionArgs) {
       );
     }
 
-    exportStage = "criação do ficheiro Excel";
     const buffer = await workbook.xlsx.writeBuffer();
 
     return new Response(buffer, {
@@ -402,22 +279,21 @@ export async function action({ request }: ActionFunctionArgs) {
         "Content-Type":
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "Content-Disposition":
-          carrier === "nextlog"
-            ? 'attachment; filename="SELLFORGE_NEXTLOG.xlsx"'
-            : 'attachment; filename="SELLFORGE_EXPORT.xlsx"',
+          'attachment; filename="SELLFORGE_EXPORT.xlsx"',
         "Cache-Control":
           "no-store, no-cache, must-revalidate",
       },
     });
   } catch (error) {
-    console.error("Erro crítico no export SellForge:", {
-      etapa: exportStage,
-      erro: error,
-    });
+    console.error(
+      "Erro crítico no export SellForge:",
+      error,
+    );
 
     return Response.json(
       {
-        error: `Não foi possível gerar o Excel. Falha na etapa: ${exportStage}.`,
+        error:
+          "Não foi possível gerar o ficheiro Excel.",
       },
       { status: 500 },
     );

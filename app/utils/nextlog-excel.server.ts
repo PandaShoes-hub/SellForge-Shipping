@@ -74,6 +74,8 @@ export type NextlogShop = {
 export type NextlogServices = {
   nextlogPtService: string;
   nextlogEsService: string;
+  nextlogDefaultVolumes?: number | null;
+  nextlogDefaultWeight?: number | null; // kg, usado quando a Shopify não fornece peso
   // Dados anteriormente guardados no Admin. Só são usados se o conjunto
   // essencial estiver completo, para não misturar moradas de remetentes.
   nextlogSenderName?: string | null;
@@ -167,11 +169,19 @@ export function buildNextlogRow(
   const sender = nextlogSender(shop, settings);
   const recipient = recipientName(order);
   const grams = Number(order.currentTotalWeight ?? 0);
-  // Padrão provisório se os produtos Shopify não tiverem peso.
+  const configuredWeight = Number(settings.nextlogDefaultWeight);
+  const defaultWeight = Number.isFinite(configuredWeight) && configuredWeight > 0
+    ? configuredWeight
+    : 1;
+  const configuredVolumes = Number(settings.nextlogDefaultVolumes);
+  const volumes = Number.isInteger(configuredVolumes) && configuredVolumes > 0
+    ? configuredVolumes
+    : 1;
+  // Respeitar o peso padrão guardado se os produtos Shopify não tiverem peso.
   // O comerciante deverá conferir o peso real antes de gerar a guia.
   const weightKg = Number.isFinite(grams) && grams > 0
     ? Math.max(0.01, Math.round(grams / 10) / 100)
-    : 1;
+    : defaultWeight;
   const price = Number(order.currentTotalPriceSet?.shopMoney?.amount);
   const service = destCountry === "PT" ? settings.nextlogPtService : settings.nextlogEsService;
 
@@ -197,7 +207,7 @@ export function buildNextlogRow(
     sender.phone,                                                 // S  Telefone Remetente
     sender.contact,                                               // T  Pessoa Contacto Remetente
     sender.nif,                                                   // U  NIF Remetente
-    1,                                                            // V  Volumes
+    volumes,                                                      // V  Volumes
     weightKg,                                                     // W  Peso Real (kg)
     "",                                                           // X  Km
     price,                                                        // Y  Valor Reembolso: mesmo valor utilizado na Trilhos

@@ -202,7 +202,7 @@ export default function ExportPage() {
     setErrorMessage("");
 
     try {
-      const response = await fetch("/api/export-selected", {
+      const response = await fetch(carrier === "nextlog" ? "/api/export-nextlog" : "/api/export-selected", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -231,7 +231,7 @@ export default function ExportPage() {
       const link = document.createElement("a");
 
       link.href = url;
-      link.download = carrier === "nextlog" ? "SELLFORGE_NEXTLOG.xlsx" : "SELLFORGE_EXPORT.xlsx";
+      link.download = carrier === "nextlog" ? "SELLFORGE_NEXTLOG_CTT29.xlsx" : "SELLFORGE_EXPORT.xlsx";
 
       document.body.appendChild(link);
       link.click();
