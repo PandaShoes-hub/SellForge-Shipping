@@ -4,6 +4,7 @@ import {
   NEXTLOG_HEADERS,
   buildNextlogRow,
   recipientName,
+  nextlogSender,
   clean,
   type NextlogOrder,
   type NextlogShop,
@@ -173,8 +174,8 @@ export async function action({ request }: ActionFunctionArgs) {
       }
     }
 
-    // A NextLog utiliza o modelo OFICIAL recebido (27 colunas, A:AA).
-    // A Trilhos continua com o modelo ATT_IMPORT.xlsx, sem mudanças.
+    // NextLog gera diretamente o MODELO CTT de 29 colunas (A:AC).
+    // Trilhos continua a abrir ATT_IMPORT.xlsx, sem alterações.
     let shopInfo: NextlogShop | null = null;
     if (carrier === "nextlog") {
       exportStage = "consulta da morada do remetente na Shopify";
@@ -210,50 +211,44 @@ export async function action({ request }: ActionFunctionArgs) {
 
       // O remetente é a loja Shopify, não campos manuais no Admin SellForge.
       // Se faltarem dados essenciais, bloquear em vez de produzir um Excel trocado.
-      const origin = shopInfo.shopAddress;
+      const sender = nextlogSender(shopInfo, license);
       const missingOrigin = [
-        ["nome da loja", origin?.company || shopInfo.name],
-        ["morada da loja", origin?.address1],
-        ["código postal da loja", origin?.zip],
-        ["localidade da loja", origin?.city],
-        ["país da loja", origin?.countryCodeV2],
+        ["nome do remetente", sender.name],
+        ["morada do remetente", sender.address],
+        ["código postal do remetente", sender.postalCode],
+        ["localidade do remetente", sender.city],
+        ["país do remetente", sender.country],
       ].filter(([, value]) => !clean(value));
       if (missingOrigin.length) {
         return Response.json(
-          { error: `NextLog: faltam ${missingOrigin.map(([field]) => field).join(", ")} nos dados da loja Shopify. Atualiza as informações da loja e tenta novamente.` },
+          { error: `NextLog: faltam ${missingOrigin.map(([field]) => field).join(", ")}. Verifica os dados do remetente na Shopify (morada de faturação da loja) ou os dados já guardados para NextLog.` },
           { status: 422 },
         );
       }
     }
 
-    exportStage = "abertura do modelo Excel";
+    exportStage = "preparação do Excel";
     const workbook = new ExcelJS.Workbook();
-    const modelPath = carrier === "nextlog"
-      ? path.join(process.cwd(), "public", "modelo_importacao_envios.xlsx")
-      : path.join(process.cwd(), "public", "ATT_IMPORT.xlsx");
-    await workbook.xlsx.readFile(modelPath);
-    const worksheet = workbook.worksheets[0];
-
-    if (!worksheet) {
-      return Response.json(
-        { error: "O modelo Excel não contém nenhuma folha." },
-        { status: 500 },
-      );
+    let worksheet: ExcelJS.Worksheet;
+    if (carrier === "nextlog") {
+      // Não usar o modelo de 27 colunas; a opção MODELO CTT mostra 29 colunas.
+      worksheet = workbook.addWorksheet("Listagem");
+      NEXTLOG_HEADERS.forEach((header, index) => {
+        worksheet.getRow(1).getCell(index + 1).value = header;
+      });
+    } else {
+      // O fluxo Trilhos permanece inalterado e continua a usar o modelo ATT_IMPORT.
+      const modelPath = path.join(process.cwd(), "public", "ATT_IMPORT.xlsx");
+      await workbook.xlsx.readFile(modelPath);
+      const existing = workbook.worksheets[0];
+      if (!existing) {
+        return Response.json({ error: "O modelo Excel Trilhos não contém nenhuma folha." }, { status: 500 });
+      }
+      worksheet = existing;
     }
 
     exportStage = "validação e preenchimento das colunas";
     if (carrier === "nextlog") {
-      // Proteção contra um template trocado ou atualizado com outra ordem.
-      const sameHeaders = NEXTLOG_HEADERS.every(
-        (header, index) => clean(worksheet.getRow(1).getCell(index + 1).value) === header,
-      );
-      if (!sameHeaders || worksheet.getRow(1).cellCount !== NEXTLOG_HEADERS.length) {
-        return Response.json(
-          { error: "NextLog: o modelo Excel não corresponde às 27 colunas oficiais. Verifica public/modelo_importacao_envios.xlsx." },
-          { status: 500 },
-        );
-      }
-
       const exportDate = new Date().toISOString().slice(0, 10);
       for (const [index, order] of (orders as NextlogOrder[]).entries()) {
         const addr = order.shippingAddress;
@@ -285,11 +280,13 @@ export async function action({ request }: ActionFunctionArgs) {
         values.forEach((value, cellIndex) => {
           row.getCell(cellIndex + 1).value = value;
         });
-        [4, 5, 8, 10, 11, 15, 17, 18, 19, 27].forEach((col) => {
+        // Referência, códigos postais, telefones e países sempre como TEXTO.
+        // Não arredondar nem eliminar zeros iniciais / indicativos internacionais.
+        [4, 7, 9, 10, 11, 13, 16, 18, 19, 20, 21, 28].forEach((col) => {
           row.getCell(col).numFmt = "@";
         });
-        row.getCell(22).numFmt = "0.00";
-        row.getCell(24).numFmt = "0.00";
+        row.getCell(23).numFmt = "0.00"; // W Peso Real
+        row.getCell(25).numFmt = "0.00"; // Y Valor Reembolso
       }
     } else {
     orders.forEach((order: any, index: number) => {
@@ -386,7 +383,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
     const firstDataRow = worksheet.getRow(2);
 
-    if (!firstDataRow.getCell(carrier === "nextlog" ? 5 : 1).value) {
+    if (!firstDataRow.getCell(carrier === "nextlog" ? 4 : 1).value) {
       return Response.json(
         {
           error:

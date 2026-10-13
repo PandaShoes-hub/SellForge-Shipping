@@ -1,36 +1,38 @@
 /**
- * Modelo de importação NextLog fornecido pelo cliente (folha "Listagem", A:AA).
- * Os nomes e a ORDEM das 27 colunas são importantes para o importador.
- * Não reutilizar o modelo Trilhos nesta transportadora.
+ * NextLog -> opção de importação "MODELO CTT" (29 colunas A:AC).
+ * A ordem foi retirada da pré-visualização MODELO CTT enviada pelo utilizador.
+ * O antigo modelo "modelo_importacao_envios.xlsx" com 27 colunas NÃO serve para MODELO CTT.
  */
 export const NEXTLOG_HEADERS = [
-  "Data",
-  "Hora Início",
-  "Hora Fim",
-  "Referência",
-  "Cod. Serviço",
-  "Remetente",
-  "Morada Remetente",
-  "Cod Post Remetente",
-  "Localidade Remetente",
-  "Pais Remetente",
-  "Contacto Remetente",
-  "Pessoa Contacto Remetente",
-  "Destinatário",
-  "Morada Destinatário",
-  "Cod Post Destinatário",
-  "Localidade Destinatário",
-  "Pais Destinatário",
-  "Contacto Destinatário",
-  "Email destinatario",
-  "Pessoa Contacto Destino",
-  "Volumes/Qtd",
-  "Peso (Kg)",
-  "Kms",
-  "Cobrança",
-  "Retorno (1/0)",
-  "Observações",
-  "Solicitado Por",
+  "Data",                         // A (1)
+  "Hora Início",                  // B
+  "Hora Fim",                     // C
+  "Código de Serviço",            // D
+  "Nome Destinatário",            // E
+  "Morada Destinatário",          // F
+  "Cód. Postal Destinatário",     // G
+  "Localidade Destinatário",      // H
+  "País Destinatário",            // I
+  "Telefone Destinatário",        // J
+  "E-mail Destinatário",          // K
+  "Pessoa de Contacto",           // L
+  "NIF Destinatário",             // M
+  "Nome Remetente",               // N
+  "Morada Remetente",             // O
+  "Cód. Postal Remetente",        // P
+  "Localidade Remetente",         // Q
+  "País Remetente",               // R
+  "Telefone Remetente",           // S
+  "Pessoa Contacto Remetente",    // T
+  "NIF Remetente",                // U
+  "Volumes",                      // V
+  "Peso Real",                    // W
+  "Km",                           // X
+  "Valor Reembolso",              // Y
+  "Retorno de Encomenda",         // Z
+  "Retorno Guia Assinada",        // AA
+  "Referência",                   // AB
+  "Observações",                  // AC (29)
 ] as const;
 
 export type NextlogOrder = {
@@ -38,7 +40,7 @@ export type NextlogOrder = {
   name: string;
   email?: string | null;
   phone?: string | null;
-  currentTotalWeight?: string | number | null; // Shopify: gramas
+  currentTotalWeight?: number | string | null; // Shopify Admin GraphQL: gramas
   currentTotalPriceSet?: {
     shopMoney?: { amount?: string | number | null; currencyCode?: string | null } | null;
   } | null;
@@ -72,6 +74,16 @@ export type NextlogShop = {
 export type NextlogServices = {
   nextlogPtService: string;
   nextlogEsService: string;
+  // Dados anteriormente guardados no Admin. Só são usados se o conjunto
+  // essencial estiver completo, para não misturar moradas de remetentes.
+  nextlogSenderName?: string | null;
+  nextlogSenderAddress?: string | null;
+  nextlogSenderPostalCode?: string | null;
+  nextlogSenderCity?: string | null;
+  nextlogSenderCountry?: string | null;
+  nextlogSenderPhone?: string | null;
+  nextlogSenderContact?: string | null;
+  nextlogSenderNif?: string | null;
 };
 
 export function clean(value: unknown): string {
@@ -83,8 +95,8 @@ export function fullAddress(address?: { address1?: string | null; address2?: str
 }
 
 export function recipientName(order: NextlogOrder): string {
-  const addr = order.shippingAddress;
-  return clean(addr?.name) || [addr?.firstName, addr?.lastName].map(clean).filter(Boolean).join(" ");
+  const a = order.shippingAddress;
+  return clean(a?.name) || [a?.firstName, a?.lastName].map(clean).filter(Boolean).join(" ");
 }
 
 export function normalizePhone(raw: string, country: string): string {
@@ -94,65 +106,108 @@ export function normalizePhone(raw: string, country: string): string {
   if (phone.startsWith("00")) return `+${phone.slice(2)}`;
   const prefix = country === "PT" ? "351" : country === "ES" ? "34" : "";
   if (!prefix) return phone;
-  const nationalLength = country === "PT" ? 9 : 9;
-  if (phone.startsWith(prefix) && phone.length === prefix.length + nationalLength) {
+  // Não duplicar indicativo quando já vem presente sem "+".
+  if (phone.startsWith(prefix) && phone.length === prefix.length + 9) {
     return `+${phone}`;
   }
   return `+${prefix}${phone}`;
 }
 
-/** Produz exatamente 27 valores na ordem original A:AA. */
+/**
+ * Remetente: prioriza dados completos previamente configurados para a NextLog.
+ * Caso contrário, usa o billingAddress da loja Shopify.
+ * Atenção: morada de faturação da loja pode NÃO ser a morada de expedição.
+ */
+export function nextlogSender(shop: NextlogShop, settings: NextlogServices) {
+  const hasPreviousConfig = [
+    settings.nextlogSenderName,
+    settings.nextlogSenderAddress,
+    settings.nextlogSenderPostalCode,
+    settings.nextlogSenderCity,
+    settings.nextlogSenderCountry,
+  ].every((value) => clean(value).length > 0);
+  if (hasPreviousConfig) {
+    const country = clean(settings.nextlogSenderCountry).toUpperCase();
+    return {
+      name: clean(settings.nextlogSenderName),
+      address: clean(settings.nextlogSenderAddress),
+      postalCode: clean(settings.nextlogSenderPostalCode),
+      city: clean(settings.nextlogSenderCity),
+      country,
+      phone: normalizePhone(clean(settings.nextlogSenderPhone), country),
+      contact: clean(settings.nextlogSenderContact) || clean(settings.nextlogSenderName),
+      nif: clean(settings.nextlogSenderNif),
+      source: "saved" as const,
+    };
+  }
+  const origin = shop.shopAddress ?? {};
+  const country = clean(origin.countryCodeV2).toUpperCase();
+  return {
+    name: clean(origin.company) || clean(shop.name),
+    address: fullAddress(origin),
+    postalCode: clean(origin.zip),
+    city: clean(origin.city),
+    country,
+    phone: normalizePhone(clean(origin.phone), country),
+    contact: clean(origin.company) || clean(shop.name),
+    nif: "", // Não inventar NIF que a Shopify não forneceu
+    source: "shopify" as const,
+  };
+}
+
+/** Exporta precisamente os 29 valores exigidos pelo MODELO CTT, em A:AC. */
 export function buildNextlogRow(
   order: NextlogOrder,
-  services: NextlogServices,
+  settings: NextlogServices,
   shop: NextlogShop,
   exportDate: string,
 ): (string | number)[] {
-  const destination = order.shippingAddress ?? {};
-  const origin = shop.shopAddress ?? {};
-  const destCountry = clean(destination.countryCodeV2).toUpperCase();
-  const sourceCountry = clean(origin.countryCodeV2).toUpperCase();
-  const sender = clean(origin.company) || clean(shop.name);
+  const a = order.shippingAddress ?? {};
+  const destCountry = clean(a.countryCodeV2).toUpperCase();
+  const sender = nextlogSender(shop, settings);
   const recipient = recipientName(order);
-  const rawGrams = Number(order.currentTotalWeight ?? 0);
-  // Se a Shopify não tiver peso, usar mínimo operacional 1 kg.
-  // Confirmar peso real antes de produzir a guia da transportadora.
-  const weightKg = Number.isFinite(rawGrams) && rawGrams > 0
-    ? Math.max(0.01, Math.round(rawGrams / 10) / 100)
+  const grams = Number(order.currentTotalWeight ?? 0);
+  // Padrão provisório se os produtos Shopify não tiverem peso.
+  // O comerciante deverá conferir o peso real antes de gerar a guia.
+  const weightKg = Number.isFinite(grams) && grams > 0
+    ? Math.max(0.01, Math.round(grams / 10) / 100)
     : 1;
   const price = Number(order.currentTotalPriceSet?.shopMoney?.amount);
+  const service = destCountry === "PT" ? settings.nextlogPtService : settings.nextlogEsService;
 
-  const row: (string | number)[] = [
-    exportDate, // A Data
-    "", // B Hora Início
-    "", // C Hora Fim
-    clean(order.name), // D Referência
-    destCountry === "PT" ? services.nextlogPtService : services.nextlogEsService, // E Cod. Serviço
-    sender, // F Remetente
-    fullAddress(origin), // G Morada Remetente
-    clean(origin.zip), // H Cod Post Remetente
-    clean(origin.city), // I Localidade Remetente
-    sourceCountry, // J Pais Remetente
-    normalizePhone(clean(origin.phone), sourceCountry), // K Contacto Remetente
-    sender, // L Pessoa Contacto Remetente (nome comercial disponível)
-    recipient, // M Destinatário
-    fullAddress(destination), // N Morada Destinatário
-    clean(destination.zip), // O Cod Post Destinatário
-    clean(destination.city), // P Localidade Destinatário
-    destCountry, // Q Pais Destinatário
-    normalizePhone(clean(destination.phone || order.phone), destCountry), // R Contacto Destinatário
-    clean(order.email), // S Email destinatario
-    recipient, // T Pessoa Contacto Destino
-    1, // U Volumes/Qtd (um volume por encomenda, ajustável mais tarde)
-    weightKg, // V Peso (Kg)
-    "", // W Kms
-    price, // X Cobrança - segue valor atual da encomenda, como na Trilhos
-    0, // Y Retorno (1/0)
-    "", // Z Observações - não exportar notas privadas da Shopify
-    clean(shop.name), // AA Solicitado Por
+  const values: (string | number)[] = [
+    exportDate,                                                   // A  Data
+    "",                                                           // B  Hora Início
+    "",                                                           // C  Hora Fim
+    clean(service),                                               // D  Código de Serviço
+    recipient,                                                    // E  Nome Destinatário
+    fullAddress(a),                                               // F  Morada Destinatário
+    clean(a.zip).replace(/^'+/, ""),                              // G  Cód. Postal Destinatário
+    clean(a.city),                                                // H  Localidade Destinatário
+    destCountry,                                                  // I  País Destinatário
+    normalizePhone(clean(a.phone || order.phone), destCountry),    // J  Telefone Destinatário
+    clean(order.email),                                           // K  E-mail Destinatário
+    recipient,                                                    // L  Pessoa de Contacto
+    "",                                                           // M  NIF Destinatário (não fornecido)
+    sender.name,                                                  // N  Nome Remetente
+    sender.address,                                               // O  Morada Remetente
+    sender.postalCode,                                            // P  Cód. Postal Remetente
+    sender.city,                                                  // Q  Localidade Remetente
+    sender.country,                                               // R  País Remetente
+    sender.phone,                                                 // S  Telefone Remetente
+    sender.contact,                                               // T  Pessoa Contacto Remetente
+    sender.nif,                                                   // U  NIF Remetente
+    1,                                                            // V  Volumes
+    weightKg,                                                     // W  Peso Real (kg)
+    "",                                                           // X  Km
+    price,                                                        // Y  Valor Reembolso: mesmo valor utilizado na Trilhos
+    0,                                                            // Z  Retorno de Encomenda (não pedir retorno automaticamente)
+    0,                                                            // AA Retorno Guia Assinada
+    clean(order.name),                                            // AB Referência
+    "",                                                           // AC Observações privadas não exportadas
   ];
-  if (row.length !== NEXTLOG_HEADERS.length) {
-    throw new Error("NextLog: mapeamento incompatível com o modelo A:AA (27 colunas).");
+  if (values.length !== NEXTLOG_HEADERS.length || values.length !== 29) {
+    throw new Error("NextLog MODELO CTT: número de colunas diferente de 29.");
   }
-  return row;
+  return values;
 }
