@@ -344,39 +344,16 @@ export const action = async ({
         return { error: "Os serviços NextLog devem ter entre 1 e 32 caracteres (letras, números, _ ou -)." };
       }
 
-      const sender = {
-        nextlogSenderName: String(formData.get("nextlogSenderName") || "").trim(),
-        nextlogSenderAddress: String(formData.get("nextlogSenderAddress") || "").trim(),
-        nextlogSenderPostalCode: String(formData.get("nextlogSenderPostalCode") || "").trim(),
-        nextlogSenderCity: String(formData.get("nextlogSenderCity") || "").trim(),
-        nextlogSenderCountry: String(formData.get("nextlogSenderCountry") || "").trim().toUpperCase(),
-        nextlogSenderPhone: String(formData.get("nextlogSenderPhone") || "").trim(),
-        nextlogSenderContact: String(formData.get("nextlogSenderContact") || "").trim(),
-        nextlogSenderNif: String(formData.get("nextlogSenderNif") || "").trim(),
-      };
-      if (sender.nextlogSenderCountry && !["PT", "ES"].includes(sender.nextlogSenderCountry)) {
-        return { error: "O país do remetente NextLog tem de ser PT ou ES." };
-      }
-      if (Object.values(sender).some((v) => v.length > 180)) {
-        return { error: "Os dados do remetente devem ter no máximo 180 caracteres por campo." };
-      }
-      const volumes = Number(formData.get("nextlogDefaultVolumes"));
-      const weight = Number(formData.get("nextlogDefaultWeight"));
-      if (!Number.isInteger(volumes) || volumes < 1 || volumes > 100 ||
-          !Number.isFinite(weight) || weight <= 0 || weight > 1000) {
-        return { error: "Volumes entre 1-100 e peso maior que 0 até 1000 kg." };
-      }
+      // As 29 colunas do Excel NextLog são geradas automaticamente.
+      // O administrador apenas escolhe os códigos de serviço por país.
       await prisma.license.update({
         where: { id },
         data: {
           nextlogPtService: pt,
           nextlogEsService: es,
-          ...sender,
-          nextlogDefaultVolumes: volumes,
-          nextlogDefaultWeight: weight,
         },
       });
-      return { success: "Serviços e remetente NextLog atualizados." };
+      return { success: "Serviços NextLog atualizados." };
     }
 
     if (intent === "renew") {
@@ -988,31 +965,10 @@ export default function SellForgeAdmin() {
                                 <input name="nextlogEsService" defaultValue={license.nextlogEsService}
                                   maxLength={32} required style={{ ...inputStyle, marginTop: "3px", padding: "6px" }} />
                               </label>
-                              <strong style={{ fontSize: "12px", marginTop: "6px" }}>Dados do remetente (para o Excel)</strong>
-                              {([
-                                ["Nome", "nextlogSenderName", license.nextlogSenderName],
-                                ["Morada", "nextlogSenderAddress", license.nextlogSenderAddress],
-                                ["Código postal", "nextlogSenderPostalCode", license.nextlogSenderPostalCode],
-                                ["Localidade", "nextlogSenderCity", license.nextlogSenderCity],
-                                ["País (PT/ES)", "nextlogSenderCountry", license.nextlogSenderCountry],
-                                ["Telefone", "nextlogSenderPhone", license.nextlogSenderPhone],
-                                ["Pessoa contacto", "nextlogSenderContact", license.nextlogSenderContact],
-                                ["NIF (opcional)", "nextlogSenderNif", license.nextlogSenderNif],
-                              ] as const).map(([label, name, value]) => (
-                                <label key={name} style={{ fontSize: "11px", fontWeight: 700 }}>{label}
-                                  <input name={name} defaultValue={value}
-                                    maxLength={180} style={{ ...inputStyle, marginTop: "3px", padding: "6px" }} />
-                                </label>
-                              ))}
-                              <label style={{ fontSize: "11px", fontWeight: 700 }}>Volumes por encomenda
-                                <input type="number" name="nextlogDefaultVolumes" defaultValue={license.nextlogDefaultVolumes}
-                                  min={1} max={100} step={1} required style={{ ...inputStyle, marginTop: "3px", padding: "6px" }} />
-                              </label>
-                              <label style={{ fontSize: "11px", fontWeight: 700 }}>Peso real por encomenda (kg)
-                                <input type="number" name="nextlogDefaultWeight" defaultValue={license.nextlogDefaultWeight}
-                                  min="0.001" max="1000" step="any" required style={{ ...inputStyle, marginTop: "3px", padding: "6px" }} />
-                              </label>
-                              <button type="submit" style={smallButtonStyle}>Guardar configurações</button>
+                              <p style={{ margin: "3px 0 0", color: "#6d7175", fontSize: "11px", lineHeight: 1.5 }}>
+                                O Excel da NextLog é gerado automaticamente a partir das encomendas Shopify.
+                              </p>
+                              <button type="submit" style={smallButtonStyle}>Guardar serviços</button>
                             </Form>
                           </details>
                         </TableCell>

@@ -161,29 +161,9 @@ export async function action({ request }: ActionFunctionArgs) {
       }
     }
 
-    if (carrier === "nextlog") {
-      const senderFields = [
-        ["Nome", license.nextlogSenderName],
-        ["Morada", license.nextlogSenderAddress],
-        ["Código postal", license.nextlogSenderPostalCode],
-        ["Localidade", license.nextlogSenderCity],
-        ["País", license.nextlogSenderCountry],
-        ["Telefone", license.nextlogSenderPhone],
-      ];
-      const missing = senderFields.filter(([, value]) => !String(value || "").trim()).map(([field]) => field);
-      if (missing.length) {
-        return Response.json(
-          { error: `NextLog: configura primeiro os dados do remetente no SellForge Admin (${missing.join(", ")}).` },
-          { status: 422 },
-        );
-      }
-      if (!["PT", "ES"].includes(license.nextlogSenderCountry)) {
-        return Response.json(
-          { error: "NextLog: o país do remetente tem de ser PT ou ES." },
-          { status: 422 },
-        );
-      }
-    }
+    // A folha NextLog é construída diretamente a partir das encomendas.
+    // Se não existirem dados fiáveis do remetente, os respetivos campos
+    // do Excel ficam vazios. Não bloquear a exportação por esse motivo.
 
     const workbook = new ExcelJS.Workbook();
     if (carrier === "nextlog") {
@@ -237,7 +217,10 @@ export async function action({ request }: ActionFunctionArgs) {
             { status: 422 },
           );
         }
-        const row = worksheet.addRow(buildNextlogRow(order, license));
+        const row = worksheet.addRow(buildNextlogRow(order, {
+          ...license,
+          nextlogSenderName: license.nextlogSenderName || license.company || "",
+        }));
         // Código postal, telefone, referências e NIF como texto (sem perder zeros).
         [7, 10, 13, 16, 19, 21, 28].forEach((col) => {
           row.getCell(col).numFmt = "@";
