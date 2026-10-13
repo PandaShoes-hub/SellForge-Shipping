@@ -320,26 +320,63 @@ export const action = async ({
       };
     }
 
+    if (intent === "saveTrilhosServices") {
+      const id = String(formData.get("id") || "");
+      const pt = String(formData.get("trilhosPtService") || "").trim().toUpperCase();
+      const es = String(formData.get("trilhosEsService") || "").trim().toUpperCase();
+      const validCode = /^[A-Z0-9_-]{1,32}$/;
+      if (!validCode.test(pt) || !validCode.test(es)) {
+        return { error: "Os serviços Trilhos devem ter entre 1 e 32 caracteres (letras, números, _ ou -)." };
+      }
+      await prisma.license.update({
+        where: { id },
+        data: { trilhosPtService: pt, trilhosEsService: es },
+      });
+      return { success: "Serviços Trilhos atualizados." };
+    }
+
     if (intent === "saveNextlogServices") {
       const id = String(formData.get("id") || "");
       const pt = String(formData.get("nextlogPtService") || "").trim().toUpperCase();
       const es = String(formData.get("nextlogEsService") || "").trim().toUpperCase();
-
-      // Códigos de serviço válidos para exportação Excel.
       const validCode = /^[A-Z0-9_-]{1,32}$/;
       if (!validCode.test(pt) || !validCode.test(es)) {
-        return { error: "Os serviços NextLog devem ter entre 1 e 32 letras, números, _ ou -." };
+        return { error: "Os serviços NextLog devem ter entre 1 e 32 caracteres (letras, números, _ ou -)." };
       }
 
+      const sender = {
+        nextlogSenderName: String(formData.get("nextlogSenderName") || "").trim(),
+        nextlogSenderAddress: String(formData.get("nextlogSenderAddress") || "").trim(),
+        nextlogSenderPostalCode: String(formData.get("nextlogSenderPostalCode") || "").trim(),
+        nextlogSenderCity: String(formData.get("nextlogSenderCity") || "").trim(),
+        nextlogSenderCountry: String(formData.get("nextlogSenderCountry") || "").trim().toUpperCase(),
+        nextlogSenderPhone: String(formData.get("nextlogSenderPhone") || "").trim(),
+        nextlogSenderContact: String(formData.get("nextlogSenderContact") || "").trim(),
+        nextlogSenderNif: String(formData.get("nextlogSenderNif") || "").trim(),
+      };
+      if (sender.nextlogSenderCountry && !["PT", "ES"].includes(sender.nextlogSenderCountry)) {
+        return { error: "O país do remetente NextLog tem de ser PT ou ES." };
+      }
+      if (Object.values(sender).some((v) => v.length > 180)) {
+        return { error: "Os dados do remetente devem ter no máximo 180 caracteres por campo." };
+      }
+      const volumes = Number(formData.get("nextlogDefaultVolumes"));
+      const weight = Number(formData.get("nextlogDefaultWeight"));
+      if (!Number.isInteger(volumes) || volumes < 1 || volumes > 100 ||
+          !Number.isFinite(weight) || weight <= 0 || weight > 1000) {
+        return { error: "Volumes entre 1-100 e peso maior que 0 até 1000 kg." };
+      }
       await prisma.license.update({
         where: { id },
         data: {
           nextlogPtService: pt,
           nextlogEsService: es,
+          ...sender,
+          nextlogDefaultVolumes: volumes,
+          nextlogDefaultWeight: weight,
         },
       });
-
-      return { success: "Serviços NextLog atualizados." };
+      return { success: "Serviços e remetente NextLog atualizados." };
     }
 
     if (intent === "renew") {
@@ -801,7 +838,6 @@ export default function SellForgeAdmin() {
                     <TableHeader>Estado</TableHeader>
                     <TableHeader>Trilhos</TableHeader>
                     <TableHeader>NextLog</TableHeader>
-                    <TableHeader>Serviços NextLog</TableHeader>
                     <TableHeader>CTT</TableHeader>
                     <TableHeader>UPS</TableHeader>
                     <TableHeader>Validade</TableHeader>
@@ -910,6 +946,24 @@ export default function SellForgeAdmin() {
                             enabled={license.trilhosEnabled}
                             disabled={!active}
                           />
+                          <details style={{ marginTop: "9px", minWidth: "130px" }}>
+                            <summary style={{ cursor: "pointer", color: "#005bd3", fontWeight: 700, fontSize: "12px" }}>
+                              ⚙ Configurar
+                            </summary>
+                            <Form method="post" style={{ display: "grid", gap: "7px", marginTop: "8px", minWidth: "165px" }}>
+                              <input type="hidden" name="intent" value="saveTrilhosServices" />
+                              <input type="hidden" name="id" value={license.id} />
+                              <label style={{ fontSize: "11px", fontWeight: 700 }}>Portugal
+                                <input name="trilhosPtService" defaultValue={license.trilhosPtService}
+                                  maxLength={32} required style={{ ...inputStyle, padding: "6px", marginTop: "3px" }} />
+                              </label>
+                              <label style={{ fontSize: "11px", fontWeight: 700 }}>Espanha
+                                <input name="trilhosEsService" defaultValue={license.trilhosEsService}
+                                  maxLength={32} required style={{ ...inputStyle, padding: "6px", marginTop: "3px" }} />
+                              </label>
+                              <button type="submit" style={smallButtonStyle}>Guardar serviços</button>
+                            </Form>
+                          </details>
                         </TableCell>
 
                         <TableCell>
@@ -919,34 +973,48 @@ export default function SellForgeAdmin() {
                             enabled={license.nextlogEnabled}
                             disabled={!active}
                           />
-                        </TableCell>
-
-                        <TableCell>
-                          <Form method="post" style={{ display: "grid", gap: "6px", minWidth: "148px" }}>
-                            <input type="hidden" name="intent" value="saveNextlogServices" />
-                            <input type="hidden" name="id" value={license.id} />
-                            <label style={{ fontSize: "11px", fontWeight: 700 }}>
-                              Portugal
-                              <input
-                                name="nextlogPtService"
-                                defaultValue={license.nextlogPtService}
-                                maxLength={32}
-                                required
-                                style={{ ...inputStyle, marginTop: "3px", padding: "6px" }}
-                              />
-                            </label>
-                            <label style={{ fontSize: "11px", fontWeight: 700 }}>
-                              Espanha
-                              <input
-                                name="nextlogEsService"
-                                defaultValue={license.nextlogEsService}
-                                maxLength={32}
-                                required
-                                style={{ ...inputStyle, marginTop: "3px", padding: "6px" }}
-                              />
-                            </label>
-                            <button type="submit" style={smallButtonStyle}>Guardar serviços</button>
-                          </Form>
+                          <details style={{ marginTop: "9px", minWidth: "135px" }}>
+                            <summary style={{ cursor: "pointer", color: "#005bd3", fontWeight: 700, fontSize: "12px" }}>
+                              ⚙ Configurar
+                            </summary>
+                            <Form method="post" style={{ display: "grid", gap: "7px", marginTop: "8px", minWidth: "200px" }}>
+                              <input type="hidden" name="intent" value="saveNextlogServices" />
+                              <input type="hidden" name="id" value={license.id} />
+                              <label style={{ fontSize: "11px", fontWeight: 700 }}>Serviço Portugal
+                                <input name="nextlogPtService" defaultValue={license.nextlogPtService}
+                                  maxLength={32} required style={{ ...inputStyle, marginTop: "3px", padding: "6px" }} />
+                              </label>
+                              <label style={{ fontSize: "11px", fontWeight: 700 }}>Serviço Espanha
+                                <input name="nextlogEsService" defaultValue={license.nextlogEsService}
+                                  maxLength={32} required style={{ ...inputStyle, marginTop: "3px", padding: "6px" }} />
+                              </label>
+                              <strong style={{ fontSize: "12px", marginTop: "6px" }}>Dados do remetente (para o Excel)</strong>
+                              {([
+                                ["Nome", "nextlogSenderName", license.nextlogSenderName],
+                                ["Morada", "nextlogSenderAddress", license.nextlogSenderAddress],
+                                ["Código postal", "nextlogSenderPostalCode", license.nextlogSenderPostalCode],
+                                ["Localidade", "nextlogSenderCity", license.nextlogSenderCity],
+                                ["País (PT/ES)", "nextlogSenderCountry", license.nextlogSenderCountry],
+                                ["Telefone", "nextlogSenderPhone", license.nextlogSenderPhone],
+                                ["Pessoa contacto", "nextlogSenderContact", license.nextlogSenderContact],
+                                ["NIF (opcional)", "nextlogSenderNif", license.nextlogSenderNif],
+                              ] as const).map(([label, name, value]) => (
+                                <label key={name} style={{ fontSize: "11px", fontWeight: 700 }}>{label}
+                                  <input name={name} defaultValue={value}
+                                    maxLength={180} style={{ ...inputStyle, marginTop: "3px", padding: "6px" }} />
+                                </label>
+                              ))}
+                              <label style={{ fontSize: "11px", fontWeight: 700 }}>Volumes por encomenda
+                                <input type="number" name="nextlogDefaultVolumes" defaultValue={license.nextlogDefaultVolumes}
+                                  min={1} max={100} step={1} required style={{ ...inputStyle, marginTop: "3px", padding: "6px" }} />
+                              </label>
+                              <label style={{ fontSize: "11px", fontWeight: 700 }}>Peso real por encomenda (kg)
+                                <input type="number" name="nextlogDefaultWeight" defaultValue={license.nextlogDefaultWeight}
+                                  min="0.001" max="1000" step="any" required style={{ ...inputStyle, marginTop: "3px", padding: "6px" }} />
+                              </label>
+                              <button type="submit" style={smallButtonStyle}>Guardar configurações</button>
+                            </Form>
+                          </details>
                         </TableCell>
 
                         <TableCell>

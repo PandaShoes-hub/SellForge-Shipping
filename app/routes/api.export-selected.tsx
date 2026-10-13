@@ -1,5 +1,6 @@
 import type { ActionFunctionArgs } from "react-router";
 import ExcelJS from "exceljs";
+import { NEXTLOG_HEADERS, buildNextlogRow, type NextlogOrder } from "../utils/nextlog-excel.server";
 import path from "node:path";
 
 import { authenticate } from "../shopify.server";
@@ -160,14 +161,45 @@ export async function action({ request }: ActionFunctionArgs) {
       }
     }
 
-    const templatePath = path.join(
-      process.cwd(),
-      "public",
-      "ATT_IMPORT.xlsx",
-    );
+    if (carrier === "nextlog") {
+      const senderFields = [
+        ["Nome", license.nextlogSenderName],
+        ["Morada", license.nextlogSenderAddress],
+        ["Código postal", license.nextlogSenderPostalCode],
+        ["Localidade", license.nextlogSenderCity],
+        ["País", license.nextlogSenderCountry],
+        ["Telefone", license.nextlogSenderPhone],
+      ];
+      const missing = senderFields.filter(([, value]) => !String(value || "").trim()).map(([field]) => field);
+      if (missing.length) {
+        return Response.json(
+          { error: `NextLog: configura primeiro os dados do remetente no SellForge Admin (${missing.join(", ")}).` },
+          { status: 422 },
+        );
+      }
+      if (!["PT", "ES"].includes(license.nextlogSenderCountry)) {
+        return Response.json(
+          { error: "NextLog: o país do remetente tem de ser PT ou ES." },
+          { status: 422 },
+        );
+      }
+    }
 
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(templatePath);
+    if (carrier === "nextlog") {
+      // A NextLog tem 29 colunas diferentes da Trilhos.
+      const nextlogSheet = workbook.addWorksheet("NextLog");
+      nextlogSheet.addRow([...NEXTLOG_HEADERS]);
+      nextlogSheet.getRow(1).font = { bold: true };
+      nextlogSheet.getRow(1).alignment = { vertical: "middle" };
+      nextlogSheet.columns = NEXTLOG_HEADERS.map((header) => ({
+        header,
+        width: Math.min(38, Math.max(16, header.length + 3)),
+      }));
+    } else {
+      const templatePath = path.join(process.cwd(), "public", "ATT_IMPORT.xlsx");
+      await workbook.xlsx.readFile(templatePath);
+    }
 
     const worksheet = workbook.worksheets[0];
 
@@ -181,6 +213,37 @@ export async function action({ request }: ActionFunctionArgs) {
       );
     }
 
+    if (carrier === "nextlog") {
+      for (const order of orders as NextlogOrder[]) {
+        const addr = order.shippingAddress;
+        const absent = [
+          ["nome", addr?.name || [addr?.firstName, addr?.lastName].filter(Boolean).join(" ")],
+          ["morada", addr?.address1],
+          ["código postal", addr?.zip],
+          ["localidade", addr?.city],
+          ["telefone", addr?.phone || order.phone],
+        ].filter(([, value]) => !String(value || "").trim());
+        if (absent.length) {
+          return Response.json(
+            { error: `NextLog: faltam ${absent.map(([field]) => field).join(", ")} na encomenda ${order.name}. Corrige na Shopify e tenta novamente.` },
+            { status: 422 },
+          );
+        }
+        const rawTotal = order.currentTotalPriceSet?.shopMoney?.amount;
+        const amount = Number(rawTotal);
+        if (rawTotal === undefined || rawTotal === null || rawTotal === "" || !Number.isFinite(amount) || amount < 0) {
+          return Response.json(
+            { error: `Total atual inválido na encomenda ${order.name}.` },
+            { status: 422 },
+          );
+        }
+        const row = worksheet.addRow(buildNextlogRow(order, license));
+        // Código postal, telefone, referências e NIF como texto (sem perder zeros).
+        [7, 10, 13, 16, 19, 21, 28].forEach((col) => {
+          row.getCell(col).numFmt = "@";
+        });
+      }
+    } else {
     orders.forEach((order: any, index: number) => {
       const row = worksheet.getRow(index + 2);
       const address = order.shippingAddress ?? {};
@@ -266,15 +329,16 @@ export async function action({ request }: ActionFunctionArgs) {
       row.getCell(12).value = order.email || "";
       row.getCell(13).value = "";
       row.getCell(14).value = customerName;
-      // Trilhos continua com GOLD / 24ES; NextLog tem códigos independentes.
-      row.getCell(15).value = carrier === "nextlog"
-        ? (country === "PT" ? license.nextlogPtService : license.nextlogEsService)
-        : (country === "PT" ? "GOLD" : "24ES");
+      // Códigos Trilhos configuráveis por loja (padrão GOLD / 24ES).
+      row.getCell(15).value = country === "PT"
+        ? license.trilhosPtService
+        : license.trilhosEsService;
     });
+    }
 
     const firstDataRow = worksheet.getRow(2);
 
-    if (!firstDataRow.getCell(1).value) {
+    if (!firstDataRow.getCell(carrier === "nextlog" ? 4 : 1).value) {
       return Response.json(
         {
           error:

@@ -36,6 +36,8 @@ model License {
   active           Boolean   @default(true)
 
   trilhosEnabled   Boolean   @default(true)
+  trilhosPtService String    @default("GOLD")
+  trilhosEsService String    @default("24ES")
   cttEnabled       Boolean   @default(false)
   upsEnabled       Boolean   @default(false)
 
@@ -43,6 +45,16 @@ model License {
   nextlogEnabled   Boolean   @default(false)
   nextlogPtService String    @default("CTT48H")
   nextlogEsService String    @default("CTT24H")
+  nextlogSenderName       String @default("")
+  nextlogSenderAddress    String @default("")
+  nextlogSenderPostalCode String @default("")
+  nextlogSenderCity       String @default("")
+  nextlogSenderCountry    String @default("")
+  nextlogSenderPhone      String @default("")
+  nextlogSenderContact    String @default("")
+  nextlogSenderNif        String @default("")
+  nextlogDefaultVolumes   Int    @default(1)
+  nextlogDefaultWeight    Float  @default(1)
 
   expiresAt        DateTime?
   lastAccessAt     DateTime?

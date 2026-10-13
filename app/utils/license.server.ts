@@ -11,9 +11,21 @@ export type LicenseStatus = {
   company: string | null;
   expiresAt: Date | null;
   trilhosEnabled: boolean;
+  trilhosPtService: string;
+  trilhosEsService: string;
   nextlogEnabled: boolean;
   nextlogPtService: string;
   nextlogEsService: string;
+  nextlogSenderName: string;
+  nextlogSenderAddress: string;
+  nextlogSenderPostalCode: string;
+  nextlogSenderCity: string;
+  nextlogSenderCountry: string;
+  nextlogSenderPhone: string;
+  nextlogSenderContact: string;
+  nextlogSenderNif: string;
+  nextlogDefaultVolumes: number;
+  nextlogDefaultWeight: number;
   cttEnabled: boolean;
   upsEnabled: boolean;
 };
@@ -24,9 +36,21 @@ function normalizeShop(shop: string): string {
 
 const noCarrierAccess = {
   trilhosEnabled: false,
+  trilhosPtService: "GOLD",
+  trilhosEsService: "24ES",
   nextlogEnabled: false,
   nextlogPtService: "CTT48H",
   nextlogEsService: "CTT24H",
+  nextlogSenderName: "",
+  nextlogSenderAddress: "",
+  nextlogSenderPostalCode: "",
+  nextlogSenderCity: "",
+  nextlogSenderCountry: "",
+  nextlogSenderPhone: "",
+  nextlogSenderContact: "",
+  nextlogSenderNif: "",
+  nextlogDefaultVolumes: 1,
+  nextlogDefaultWeight: 1,
   cttEnabled: false,
   upsEnabled: false,
 };
@@ -78,9 +102,21 @@ export async function getLicenseStatus(
       company: license.company,
       expiresAt: license.expiresAt,
       trilhosEnabled: license.trilhosEnabled,
+      trilhosPtService: license.trilhosPtService,
+      trilhosEsService: license.trilhosEsService,
       nextlogEnabled: license.nextlogEnabled,
       nextlogPtService: license.nextlogPtService,
       nextlogEsService: license.nextlogEsService,
+      nextlogSenderName: license.nextlogSenderName,
+      nextlogSenderAddress: license.nextlogSenderAddress,
+      nextlogSenderPostalCode: license.nextlogSenderPostalCode,
+      nextlogSenderCity: license.nextlogSenderCity,
+      nextlogSenderCountry: license.nextlogSenderCountry,
+      nextlogSenderPhone: license.nextlogSenderPhone,
+      nextlogSenderContact: license.nextlogSenderContact,
+      nextlogSenderNif: license.nextlogSenderNif,
+      nextlogDefaultVolumes: license.nextlogDefaultVolumes,
+      nextlogDefaultWeight: license.nextlogDefaultWeight,
       cttEnabled: license.cttEnabled,
       upsEnabled: license.upsEnabled,
     };
@@ -98,9 +134,21 @@ export async function getLicenseStatus(
       company: license.company,
       expiresAt: license.expiresAt,
       trilhosEnabled: license.trilhosEnabled,
+      trilhosPtService: license.trilhosPtService,
+      trilhosEsService: license.trilhosEsService,
       nextlogEnabled: license.nextlogEnabled,
       nextlogPtService: license.nextlogPtService,
       nextlogEsService: license.nextlogEsService,
+      nextlogSenderName: license.nextlogSenderName,
+      nextlogSenderAddress: license.nextlogSenderAddress,
+      nextlogSenderPostalCode: license.nextlogSenderPostalCode,
+      nextlogSenderCity: license.nextlogSenderCity,
+      nextlogSenderCountry: license.nextlogSenderCountry,
+      nextlogSenderPhone: license.nextlogSenderPhone,
+      nextlogSenderContact: license.nextlogSenderContact,
+      nextlogSenderNif: license.nextlogSenderNif,
+      nextlogDefaultVolumes: license.nextlogDefaultVolumes,
+      nextlogDefaultWeight: license.nextlogDefaultWeight,
       cttEnabled: license.cttEnabled,
       upsEnabled: license.upsEnabled,
     };
@@ -113,9 +161,21 @@ export async function getLicenseStatus(
     company: license.company,
     expiresAt: license.expiresAt,
     trilhosEnabled: license.trilhosEnabled,
+    trilhosPtService: license.trilhosPtService,
+    trilhosEsService: license.trilhosEsService,
     nextlogEnabled: license.nextlogEnabled,
     nextlogPtService: license.nextlogPtService,
     nextlogEsService: license.nextlogEsService,
+    nextlogSenderName: license.nextlogSenderName,
+    nextlogSenderAddress: license.nextlogSenderAddress,
+    nextlogSenderPostalCode: license.nextlogSenderPostalCode,
+    nextlogSenderCity: license.nextlogSenderCity,
+    nextlogSenderCountry: license.nextlogSenderCountry,
+    nextlogSenderPhone: license.nextlogSenderPhone,
+    nextlogSenderContact: license.nextlogSenderContact,
+    nextlogSenderNif: license.nextlogSenderNif,
+    nextlogDefaultVolumes: license.nextlogDefaultVolumes,
+    nextlogDefaultWeight: license.nextlogDefaultWeight,
     cttEnabled: license.cttEnabled,
     upsEnabled: license.upsEnabled,
   };
