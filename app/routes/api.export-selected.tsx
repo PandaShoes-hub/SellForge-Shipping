@@ -14,10 +14,13 @@ import { authenticate } from "../shopify.server";
 import { getLicenseStatus } from "../utils/license.server";
 
 export async function action({ request }: ActionFunctionArgs) {
+  // Mostrar a etapa de falha sem expor tokens ou dados pessoais no ecrã.
+  let exportStage = "autenticação Shopify";
   try {
     const { admin, session } =
       await authenticate.admin(request);
 
+    exportStage = "verificação da licença";
     const license = await getLicenseStatus(session.shop);
 
     if (!license.allowed) {
@@ -69,6 +72,7 @@ export async function action({ request }: ActionFunctionArgs) {
       );
     }
 
+    exportStage = "consulta das encomendas à Shopify";
     const response = await admin.graphql(
       `#graphql
       query GetOrders($ids: [ID!]!) {
@@ -173,13 +177,14 @@ export async function action({ request }: ActionFunctionArgs) {
     // A Trilhos continua com o modelo ATT_IMPORT.xlsx, sem mudanças.
     let shopInfo: NextlogShop | null = null;
     if (carrier === "nextlog") {
+      exportStage = "consulta da morada do remetente na Shopify";
       const shopResponse = await admin.graphql(`
         #graphql
         query SellForgeNextlogSender {
           shop {
             name
             email
-            shopAddress {
+            shopAddress: billingAddress {
               company
               address1
               address2
@@ -221,6 +226,7 @@ export async function action({ request }: ActionFunctionArgs) {
       }
     }
 
+    exportStage = "abertura do modelo Excel";
     const workbook = new ExcelJS.Workbook();
     const modelPath = carrier === "nextlog"
       ? path.join(process.cwd(), "public", "modelo_importacao_envios.xlsx")
@@ -235,6 +241,7 @@ export async function action({ request }: ActionFunctionArgs) {
       );
     }
 
+    exportStage = "validação e preenchimento das colunas";
     if (carrier === "nextlog") {
       // Proteção contra um template trocado ou atualizado com outra ordem.
       const sameHeaders = NEXTLOG_HEADERS.every(
@@ -389,6 +396,7 @@ export async function action({ request }: ActionFunctionArgs) {
       );
     }
 
+    exportStage = "criação do ficheiro Excel";
     const buffer = await workbook.xlsx.writeBuffer();
 
     return new Response(buffer, {
@@ -405,15 +413,14 @@ export async function action({ request }: ActionFunctionArgs) {
       },
     });
   } catch (error) {
-    console.error(
-      "Erro crítico no export SellForge:",
-      error,
-    );
+    console.error("Erro crítico no export SellForge:", {
+      etapa: exportStage,
+      erro: error,
+    });
 
     return Response.json(
       {
-        error:
-          "Não foi possível gerar o ficheiro Excel.",
+        error: `Não foi possível gerar o Excel. Falha na etapa: ${exportStage}.`,
       },
       { status: 500 },
     );
