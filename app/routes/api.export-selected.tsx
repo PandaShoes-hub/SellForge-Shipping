@@ -1,6 +1,13 @@
 import type { ActionFunctionArgs } from "react-router";
 import ExcelJS from "exceljs";
-import { NEXTLOG_HEADERS, buildNextlogRow, type NextlogOrder } from "../utils/nextlog-excel.server";
+import {
+  NEXTLOG_HEADERS,
+  buildNextlogRow,
+  recipientName,
+  clean,
+  type NextlogOrder,
+  type NextlogShop,
+} from "../utils/nextlog-excel.server";
 import path from "node:path";
 
 import { authenticate } from "../shopify.server";
@@ -71,6 +78,7 @@ export async function action({ request }: ActionFunctionArgs) {
             name
             email
             phone
+            currentTotalWeight
             currentTotalPriceSet {
               shopMoney {
                 amount
@@ -161,70 +169,120 @@ export async function action({ request }: ActionFunctionArgs) {
       }
     }
 
-    // A folha NextLog é construída diretamente a partir das encomendas.
-    // Se não existirem dados fiáveis do remetente, os respetivos campos
-    // do Excel ficam vazios. Não bloquear a exportação por esse motivo.
-
-    const workbook = new ExcelJS.Workbook();
+    // A NextLog utiliza o modelo OFICIAL recebido (27 colunas, A:AA).
+    // A Trilhos continua com o modelo ATT_IMPORT.xlsx, sem mudanças.
+    let shopInfo: NextlogShop | null = null;
     if (carrier === "nextlog") {
-      // A NextLog tem 29 colunas diferentes da Trilhos.
-      const nextlogSheet = workbook.addWorksheet("NextLog");
-      nextlogSheet.addRow([...NEXTLOG_HEADERS]);
-      nextlogSheet.getRow(1).font = { bold: true };
-      nextlogSheet.getRow(1).alignment = { vertical: "middle" };
-      nextlogSheet.columns = NEXTLOG_HEADERS.map((header) => ({
-        header,
-        width: Math.min(38, Math.max(16, header.length + 3)),
-      }));
-    } else {
-      const templatePath = path.join(process.cwd(), "public", "ATT_IMPORT.xlsx");
-      await workbook.xlsx.readFile(templatePath);
+      const shopResponse = await admin.graphql(`
+        #graphql
+        query SellForgeNextlogSender {
+          shop {
+            name
+            email
+            shopAddress {
+              company
+              address1
+              address2
+              zip
+              city
+              countryCodeV2
+              phone
+            }
+          }
+        }
+      `);
+      const shopJson = (await shopResponse.json()) as {
+        data?: { shop?: NextlogShop | null };
+        errors?: Array<{ message?: string }>;
+      };
+      if (shopJson.errors?.length || !shopJson.data?.shop) {
+        return Response.json(
+          { error: "NextLog: não foi possível obter os dados da loja na Shopify." },
+          { status: 502 },
+        );
+      }
+      shopInfo = shopJson.data.shop;
+
+      // O remetente é a loja Shopify, não campos manuais no Admin SellForge.
+      // Se faltarem dados essenciais, bloquear em vez de produzir um Excel trocado.
+      const origin = shopInfo.shopAddress;
+      const missingOrigin = [
+        ["nome da loja", origin?.company || shopInfo.name],
+        ["morada da loja", origin?.address1],
+        ["código postal da loja", origin?.zip],
+        ["localidade da loja", origin?.city],
+        ["país da loja", origin?.countryCodeV2],
+      ].filter(([, value]) => !clean(value));
+      if (missingOrigin.length) {
+        return Response.json(
+          { error: `NextLog: faltam ${missingOrigin.map(([field]) => field).join(", ")} nos dados da loja Shopify. Atualiza as informações da loja e tenta novamente.` },
+          { status: 422 },
+        );
+      }
     }
 
+    const workbook = new ExcelJS.Workbook();
+    const modelPath = carrier === "nextlog"
+      ? path.join(process.cwd(), "public", "modelo_importacao_envios.xlsx")
+      : path.join(process.cwd(), "public", "ATT_IMPORT.xlsx");
+    await workbook.xlsx.readFile(modelPath);
     const worksheet = workbook.worksheets[0];
 
     if (!worksheet) {
       return Response.json(
-        {
-          error:
-            "O template Excel não contém nenhuma folha.",
-        },
+        { error: "O modelo Excel não contém nenhuma folha." },
         { status: 500 },
       );
     }
 
     if (carrier === "nextlog") {
-      for (const order of orders as NextlogOrder[]) {
+      // Proteção contra um template trocado ou atualizado com outra ordem.
+      const sameHeaders = NEXTLOG_HEADERS.every(
+        (header, index) => clean(worksheet.getRow(1).getCell(index + 1).value) === header,
+      );
+      if (!sameHeaders || worksheet.getRow(1).cellCount !== NEXTLOG_HEADERS.length) {
+        return Response.json(
+          { error: "NextLog: o modelo Excel não corresponde às 27 colunas oficiais. Verifica public/modelo_importacao_envios.xlsx." },
+          { status: 500 },
+        );
+      }
+
+      const exportDate = new Date().toISOString().slice(0, 10);
+      for (const [index, order] of (orders as NextlogOrder[]).entries()) {
         const addr = order.shippingAddress;
         const absent = [
-          ["nome", addr?.name || [addr?.firstName, addr?.lastName].filter(Boolean).join(" ")],
+          ["nome", recipientName(order)],
           ["morada", addr?.address1],
           ["código postal", addr?.zip],
           ["localidade", addr?.city],
           ["telefone", addr?.phone || order.phone],
-        ].filter(([, value]) => !String(value || "").trim());
+        ].filter(([, value]) => !clean(value));
         if (absent.length) {
           return Response.json(
             { error: `NextLog: faltam ${absent.map(([field]) => field).join(", ")} na encomenda ${order.name}. Corrige na Shopify e tenta novamente.` },
             { status: 422 },
           );
         }
-        const rawTotal = order.currentTotalPriceSet?.shopMoney?.amount;
-        const amount = Number(rawTotal);
-        if (rawTotal === undefined || rawTotal === null || rawTotal === "" || !Number.isFinite(amount) || amount < 0) {
+        const amountRaw = order.currentTotalPriceSet?.shopMoney?.amount;
+        const amount = Number(amountRaw);
+        if (amountRaw === undefined || amountRaw === null || amountRaw === "" || !Number.isFinite(amount) || amount < 0) {
           return Response.json(
-            { error: `Total atual inválido na encomenda ${order.name}.` },
+            { error: `NextLog: valor atual inválido na encomenda ${order.name}.` },
             { status: 422 },
           );
         }
-        const row = worksheet.addRow(buildNextlogRow(order, {
-          ...license,
-          nextlogSenderName: license.nextlogSenderName || license.company || "",
-        }));
-        // Código postal, telefone, referências e NIF como texto (sem perder zeros).
-        [7, 10, 13, 16, 19, 21, 28].forEach((col) => {
+
+        const values = buildNextlogRow(order, license, shopInfo!, exportDate);
+        const row = worksheet.getRow(index + 2);
+        // Escreve cada célula explicitamente (sem deslocar a primeira coluna).
+        values.forEach((value, cellIndex) => {
+          row.getCell(cellIndex + 1).value = value;
+        });
+        [4, 5, 8, 10, 11, 15, 17, 18, 19, 27].forEach((col) => {
           row.getCell(col).numFmt = "@";
         });
+        row.getCell(22).numFmt = "0.00";
+        row.getCell(24).numFmt = "0.00";
       }
     } else {
     orders.forEach((order: any, index: number) => {
@@ -321,7 +379,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
     const firstDataRow = worksheet.getRow(2);
 
-    if (!firstDataRow.getCell(carrier === "nextlog" ? 4 : 1).value) {
+    if (!firstDataRow.getCell(carrier === "nextlog" ? 5 : 1).value) {
       return Response.json(
         {
           error:
