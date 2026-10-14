@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import ts from "typescript";
 import ExcelJS from "exceljs";
+import { asModule } from "./helpers/module.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const temporary = await mkdtemp(path.join(tmpdir(), "sellforge-export-tests-"));
@@ -29,36 +29,14 @@ await writeFile(mocksPath, `
 const mocksUrl = pathToFileURL(mocksPath).href;
 const { state } = await import(mocksUrl);
 
-function asModule(source, imports = new Map()) {
-  const { outputText } = ts.transpileModule(source, {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
-    transformers: {
-      before: [(context) => {
-        const visit = (node) => {
-          if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
-            const replacement = imports.get(node.moduleSpecifier.text);
-            if (replacement) {
-              return context.factory.updateImportDeclaration(
-                node, node.modifiers, node.importClause,
-                context.factory.createStringLiteral(replacement), node.attributes,
-              );
-            }
-          }
-          return ts.visitEachChild(node, visit, context);
-        };
-        return (sourceFile) => ts.visitNode(sourceFile, visit);
-      }],
-    },
-  });
-  return `data:text/javascript;base64,${Buffer.from(outputText).toString("base64")}`;
-}
-
 const nextlogSource = await readFile(path.join(root, "app/utils/nextlog-excel.server.ts"), "utf8");
 const actionSource = await readFile(path.join(root, "app/routes/api.export-selected.tsx"), "utf8");
 const nextlogActionSource = await readFile(path.join(root, "app/routes/api.export-nextlog.tsx"), "utf8");
+const batchingSource = await readFile(path.join(root, "app/utils/shopify-orders.server.ts"), "utf8");
 const imports = new Map([
   ["exceljs", import.meta.resolve("exceljs")],
   ["../utils/nextlog-excel.server", asModule(nextlogSource)],
+  ["../utils/shopify-orders.server", asModule(batchingSource, new Map(), "shopify-orders.server.ts")],
   ["../shopify.server", mocksUrl],
   ["../utils/license.server", mocksUrl],
 ]);
@@ -99,10 +77,16 @@ function order(country = "ES", overrides = {}) {
 async function exportOrders(carrier, orders, options = {}) {
   state.license = { ...services, ...options.settings };
   const queries = [];
+  const batches = [];
+  const byId = new Map(orders.map((item) => [item.id, item]));
   state.admin = {
-    graphql: async (query) => {
+    graphql: async (query, { variables }) => {
       queries.push(query);
-      return Response.json({ data: { nodes: orders } });
+      batches.push(variables.ids);
+      if (options.failBatch === queries.length) {
+        return Response.json({ errors: [{ message: "Batch failure", extensions: { code: "INTERNAL_SERVER_ERROR" } }] });
+      }
+      return Response.json({ data: { nodes: variables.ids.map((id) => byId.get(id) ?? null) } });
     },
   };
   const exporter = options.exporter ?? (carrier === "nextlog" ? nextlogAction : action);
@@ -110,9 +94,9 @@ async function exportOrders(carrier, orders, options = {}) {
   const response = await exporter({ request: new Request(`https://app.example.test${endpoint}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ carrier, orderIds: orders.map((item) => item.id) }),
+    body: JSON.stringify({ carrier, orderIds: options.orderIds ?? orders.map((item) => item.id) }),
   }) });
-  return { response, queries };
+  return { response, queries, batches };
 }
 
 async function worksheet(response) {
@@ -319,3 +303,56 @@ test("NextLog still exports when Trilhos is disabled", async () => {
   const sheet = await worksheet(response);
   assert.equal(sheet.columnCount, 14);
 });
+
+for (const carrier of ["trilhos", "nextlog"]) {
+  test(`${carrier} exports 1001 selected orders in one complete Excel using bounded Shopify calls`, async () => {
+    const orders = Array.from({ length: 1001 }, (_, index) => order(index % 2 ? "PT" : "ES", {
+      id: `gid://shopify/Order/${10000 + index}`, name: `#BULK-${index}`,
+    }));
+    const { response, batches } = await exportOrders(carrier, orders);
+    const sheet = await worksheet(response);
+    assert.equal(sheet.rowCount, 1002);
+    assert.equal(sheet.columnCount, carrier === "trilhos" ? 15 : 14);
+    assert.deepEqual(batches.flat(), orders.map((item) => item.id));
+    assert.ok(batches.every((batch) => batch.length > 0 && batch.length <= 100));
+    const references = orders.map((_, index) => sheet.getCell(`A${index + 2}`).value);
+    assert.deepEqual(references, orders.map((item) => item.name));
+    assert.equal(new Set(references).size, 1001);
+    for (const row of [2, 101, 102, 252, 1002]) {
+      assert.equal(sheet.getCell(`${carrier === "trilhos" ? "J" : "K"}${row}`).value, 1);
+      assert.equal(sheet.getCell(`${carrier === "trilhos" ? "K" : "L"}${row}`).value, 1);
+    }
+  });
+
+  test(`${carrier} refuses a partial Excel when a later Shopify batch fails`, async (context) => {
+    context.mock.method(console, "error", () => {});
+    const orders = Array.from({ length: 251 }, (_, index) => order("ES", {
+      id: `gid://shopify/Order/${20000 + index}`, name: `#FAIL-${index}`,
+    }));
+    const { response, batches } = await exportOrders(carrier, orders, { failBatch: 2 });
+    assert.equal(response.status, 502);
+    assert.equal(batches.length, 2);
+    assert.match(response.headers.get("Content-Type"), /json/);
+    assert.equal(response.headers.get("Content-Disposition"), null);
+  });
+
+  test(`${carrier} exports a repeated selected ID once`, async () => {
+    const selected = order("ES");
+    const { response, batches } = await exportOrders(carrier, [selected], { orderIds: [selected.id, selected.id] });
+    const sheet = await worksheet(response);
+    assert.equal(sheet.rowCount, 2);
+    assert.deepEqual(batches, [[selected.id]]);
+  });
+
+  test(`${carrier} refuses the download if an order disappears in the final batch`, async () => {
+    const orders = Array.from({ length: 251 }, (_, index) => order("ES", {
+      id: `gid://shopify/Order/${40000 + index}`, name: `#REMOVED-${index}`,
+    }));
+    const orderIds = orders.map((item) => item.id);
+    orderIds[250] = "gid://shopify/Order/999999999";
+    const { response, batches } = await exportOrders(carrier, orders, { orderIds });
+    assert.equal(response.status, 409);
+    assert.equal(batches.length, 3);
+    assert.equal(response.headers.get("Content-Disposition"), null);
+  });
+}

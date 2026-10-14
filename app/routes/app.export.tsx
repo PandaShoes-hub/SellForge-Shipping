@@ -8,6 +8,7 @@ import {
   getLicenseStatus,
   registerLicenseAccess,
 } from "../utils/license.server";
+import { fetchAllOrders } from "../utils/shopify-orders.server";
 
 type Order = {
   id: string;
@@ -18,6 +19,15 @@ type Order = {
   totalNumber: number;
   createdAt: string;
   country: string;
+};
+
+type ShopifyOrder = {
+  id: string;
+  name: string;
+  note?: string | null;
+  createdAt: string;
+  currentTotalPriceSet?: { shopMoney?: { amount?: string; currencyCode?: string } };
+  shippingAddress?: { name?: string | null; countryCodeV2?: string | null } | null;
 };
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -42,42 +52,41 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   await registerLicenseAccess(session.shop);
 
   try {
-    const response = await admin.graphql(`
+    const nodes = await fetchAllOrders<ShopifyOrder>(admin, `
       #graphql
-      query {
+      query SellForgeExportOrders($first: Int!, $after: String) {
         orders(
-          first: 100,
+          first: $first,
+          after: $after,
           sortKey: CREATED_AT,
           reverse: true,
           query: "status:open fulfillment_status:unfulfilled"
         ) {
-          edges {
-            node {
-              id
-              name
-              note
-              createdAt
-              currentTotalPriceSet {
-                shopMoney {
-                  amount
-                  currencyCode
-                }
-              }
-              shippingAddress {
-                name
-                countryCodeV2
+          nodes {
+            id
+            name
+            note
+            createdAt
+            currentTotalPriceSet {
+              shopMoney {
+                amount
+                currencyCode
               }
             }
+            shippingAddress {
+              name
+              countryCodeV2
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
           }
         }
       }
-    `);
+    `, { signal: request.signal });
 
-    const json = await response.json();
-    const edges = json?.data?.orders?.edges ?? [];
-
-    const orders: Order[] = edges.map((edge: any) => {
-      const order = edge.node;
+    const orders: Order[] = nodes.map((order) => {
       const amount = Number(
         order.currentTotalPriceSet?.shopMoney?.amount || 0,
       );
@@ -126,6 +135,15 @@ function countryLabel(country: string) {
   return country || "País não definido";
 }
 
+const paginationButtonStyle = {
+  padding: "10px 14px",
+  background: "#ffffff",
+  border: "1px solid #d4d7d5",
+  borderRadius: "10px",
+  color: "#383838",
+  fontWeight: 700,
+};
+
 export default function ExportPage() {
   const {
     carrierAllowed,
@@ -140,6 +158,7 @@ export default function ExportPage() {
   const [selectedOrders, setSelectedOrders] =
     useState<string[]>([]);
   const [search, setSearch] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -159,11 +178,18 @@ export default function ExportPage() {
     );
   }, [orders, search]);
 
+  const selectedOrderSet = useMemo(() => new Set(selectedOrders), [selectedOrders]);
+  const pageSize = 100;
+  const pageCount = Math.max(1, Math.ceil(filteredOrders.length / pageSize));
+  const page = Math.min(currentPage, pageCount);
+  const pageStart = (page - 1) * pageSize;
+  const displayedOrders = filteredOrders.slice(pageStart, pageStart + pageSize);
+
   const selectedTotal = useMemo(() => {
     return orders
-      .filter((order) => selectedOrders.includes(order.id))
+      .filter((order) => selectedOrderSet.has(order.id))
       .reduce((sum, order) => sum + order.totalNumber, 0);
-  }, [orders, selectedOrders]);
+  }, [orders, selectedOrderSet]);
 
   function toggleOrder(orderId: string) {
     if (loading) return;
@@ -178,18 +204,19 @@ export default function ExportPage() {
   function toggleAll() {
     if (loading) return;
 
-    const visibleIds = filteredOrders.map((order) => order.id);
+    const filteredIds = filteredOrders.map((order) => order.id);
     const allSelected =
-      visibleIds.length > 0 &&
-      visibleIds.every((id) => selectedOrders.includes(id));
+      filteredIds.length > 0 &&
+      filteredIds.every((id) => selectedOrderSet.has(id));
 
     if (allSelected) {
+      const filteredSet = new Set(filteredIds);
       setSelectedOrders((current) =>
-        current.filter((id) => !visibleIds.includes(id)),
+        current.filter((id) => !filteredSet.has(id)),
       );
     } else {
       setSelectedOrders((current) =>
-        Array.from(new Set([...current, ...visibleIds])),
+        Array.from(new Set([...current, ...filteredIds])),
       );
     }
   }
@@ -499,9 +526,10 @@ export default function ExportPage() {
           >
             <input
               value={search}
-              onChange={(event) =>
-                setSearch(event.currentTarget.value)
-              }
+              onChange={(event) => {
+                setSearch(event.currentTarget.value);
+                setCurrentPage(1);
+              }}
               placeholder="Pesquisar encomenda, cliente, país ou nota..."
               style={{
                 width: "100%",
@@ -517,7 +545,7 @@ export default function ExportPage() {
             <button
               type="button"
               onClick={toggleAll}
-              disabled={loading}
+              disabled={loading || filteredOrders.length === 0}
               style={{
                 padding: "11px 15px",
                 background: "#ffffff",
@@ -528,9 +556,26 @@ export default function ExportPage() {
                 whiteSpace: "nowrap",
               }}
             >
-              Selecionar todas
+              Selecionar todas ({filteredOrders.length})
             </button>
           </div>
+
+          {filteredOrders.length > pageSize && (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+              <span style={{ color: "#616161", fontSize: "13px" }}>
+                A mostrar {pageStart + 1}–{Math.min(pageStart + pageSize, filteredOrders.length)} de {filteredOrders.length} encomendas
+              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <button type="button" style={paginationButtonStyle} disabled={loading || page === 1} onClick={() => setCurrentPage(page - 1)}>
+                  Anterior
+                </button>
+                <span>Página {page} de {pageCount}</span>
+                <button type="button" style={paginationButtonStyle} disabled={loading || page === pageCount} onClick={() => setCurrentPage(page + 1)}>
+                  Seguinte
+                </button>
+              </div>
+            </div>
+          )}
 
           <div
             style={{
@@ -573,9 +618,9 @@ export default function ExportPage() {
                 Nenhuma encomenda disponível.
               </div>
             ) : (
-              filteredOrders.map((order) => {
+              displayedOrders.map((order) => {
                 const selected =
-                  selectedOrders.includes(order.id);
+                  selectedOrderSet.has(order.id);
 
                 return (
                   <label

@@ -3,6 +3,7 @@ import ExcelJS from "exceljs";
 
 import { authenticate } from "../shopify.server";
 import { getLicenseStatus } from "../utils/license.server";
+import { fetchOrderBatches } from "../utils/shopify-orders.server";
 import {
   NEXTLOG_HEADERS,
   buildNextlogRow,
@@ -32,9 +33,9 @@ export async function action({ request }: ActionFunctionArgs) {
         { status: 400 },
       );
     }
-    const orderIds: string[] = Array.isArray(body?.orderIds)
+    const orderIds: string[] = [...new Set<string>(Array.isArray(body?.orderIds)
       ? body.orderIds.filter((id: unknown): id is string => typeof id === "string" && id.length > 0)
-      : [];
+      : [])];
     if (!orderIds.length) {
       return Response.json(
         { error: "Nenhuma encomenda foi selecionada para exportação." },
@@ -43,7 +44,7 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     stage = "consulta das encomendas NextLog à Shopify";
-    const response = await admin.graphql(
+    const json = await fetchOrderBatches<NextlogOrder>(admin,
       `#graphql
       query SellForgeNextlogOrders($ids: [ID!]!) {
         nodes(ids: $ids) {
@@ -72,12 +73,9 @@ export async function action({ request }: ActionFunctionArgs) {
           }
         }
       }`,
-      { variables: { ids: orderIds } },
+      orderIds,
+      { signal: request.signal },
     );
-    const json = (await response.json()) as {
-      data?: { nodes?: (NextlogOrder | null)[] };
-      errors?: { message?: string }[];
-    };
     if (json.errors?.length) {
       return Response.json(
         { error: "A Shopify devolveu um erro ao carregar as encomendas para a NextLog." },

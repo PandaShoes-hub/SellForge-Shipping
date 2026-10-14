@@ -8,10 +8,16 @@ import {
   getLicenseStatus,
   registerLicenseAccess,
 } from "../utils/license.server";
+import { fetchAllOrders } from "../utils/shopify-orders.server";
 
 type DashboardOrder = {
   amount: number;
   currency: string;
+};
+
+type ShopifyDashboardOrder = {
+  id: string;
+  currentTotalPriceSet?: { shopMoney?: { amount?: string; currencyCode?: string } };
 };
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -67,36 +73,37 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   await registerLicenseAccess(session.shop);
 
   try {
-    const response = await admin.graphql(`
+    const nodes = await fetchAllOrders<ShopifyDashboardOrder>(admin, `
       #graphql
-      query {
+      query SellForgeDashboardOrders($first: Int!, $after: String) {
         orders(
-          first: 100,
+          first: $first,
+          after: $after,
           sortKey: CREATED_AT,
           reverse: true,
           query: "status:open fulfillment_status:unfulfilled"
         ) {
-          edges {
-            node {
-              currentTotalPriceSet {
-                shopMoney {
-                  amount
-                  currencyCode
-                }
+          nodes {
+            id
+            currentTotalPriceSet {
+              shopMoney {
+                amount
+                currencyCode
               }
             }
           }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
         }
       }
-    `);
+    `, { signal: request.signal });
 
-    const json = await response.json();
-    const edges = json?.data?.orders?.edges ?? [];
-
-    const orders: DashboardOrder[] = edges.map((edge: any) => ({
-      amount: Number(edge.node?.currentTotalPriceSet?.shopMoney?.amount || 0),
+    const orders: DashboardOrder[] = nodes.map((order) => ({
+      amount: Number(order.currentTotalPriceSet?.shopMoney?.amount || 0),
       currency:
-        edge.node?.currentTotalPriceSet?.shopMoney?.currencyCode || "EUR",
+        order.currentTotalPriceSet?.shopMoney?.currencyCode || "EUR",
     }));
 
     const totalsByCurrency = orders.reduce<Record<string, number>>(

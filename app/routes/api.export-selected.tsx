@@ -4,6 +4,27 @@ import path from "node:path";
 
 import { authenticate } from "../shopify.server";
 import { getLicenseStatus } from "../utils/license.server";
+import { fetchOrderBatches } from "../utils/shopify-orders.server";
+
+type TrilhosOrder = {
+  id: string;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  currentTotalPriceSet?: { shopMoney?: { amount?: string | number | null } | null } | null;
+  shippingAddress?: {
+    name?: string | null;
+    firstName?: string | null;
+    lastName?: string | null;
+    address1?: string | null;
+    address2?: string | null;
+    zip?: string | null;
+    city?: string | null;
+    province?: string | null;
+    phone?: string | null;
+    countryCodeV2?: string | null;
+  } | null;
+};
 
 export async function action({ request }: ActionFunctionArgs) {
   try {
@@ -45,12 +66,12 @@ export async function action({ request }: ActionFunctionArgs) {
       );
     }
 
-    const orderIds = Array.isArray(body?.orderIds)
+    const orderIds: string[] = [...new Set<string>(Array.isArray(body?.orderIds)
       ? body.orderIds.filter(
-          (id: unknown) =>
+          (id: unknown): id is string =>
             typeof id === "string" && id.length > 0,
         )
-      : [];
+      : [])];
 
     if (orderIds.length === 0) {
       return Response.json(
@@ -62,7 +83,7 @@ export async function action({ request }: ActionFunctionArgs) {
       );
     }
 
-    const response = await admin.graphql(
+    const json = await fetchOrderBatches<TrilhosOrder>(admin,
       `#graphql
       query GetOrders($ids: [ID!]!) {
         nodes(ids: $ids) {
@@ -92,17 +113,9 @@ export async function action({ request }: ActionFunctionArgs) {
           }
         }
       }`,
-      {
-        variables: {
-          ids: orderIds,
-        },
-      },
+      orderIds,
+      { signal: request.signal },
     );
-
-    const json = (await response.json()) as {
-      data?: { nodes?: unknown[] };
-      errors?: Array<{ message?: string }>;
-    };
 
     if (json?.errors?.length) {
       console.error("Erro GraphQL Shopify:", json.errors);
@@ -121,10 +134,7 @@ export async function action({ request }: ActionFunctionArgs) {
       : [];
 
     const orders = nodes.filter(
-      (order: any) =>
-        order &&
-        order.id &&
-        order.name,
+      (order): order is TrilhosOrder => Boolean(order?.id && order.name),
     );
 
     if (orders.length === 0) {
@@ -168,7 +178,7 @@ export async function action({ request }: ActionFunctionArgs) {
       );
     }
 
-    orders.forEach((order: any, index: number) => {
+    orders.forEach((order, index: number) => {
       const row = worksheet.getRow(index + 2);
       const address = order.shippingAddress ?? {};
 
