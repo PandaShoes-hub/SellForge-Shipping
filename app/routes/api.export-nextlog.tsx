@@ -7,10 +7,8 @@ import {
   NEXTLOG_HEADERS,
   buildNextlogRow,
   clean,
-  nextlogSender,
   recipientName,
   type NextlogOrder,
-  type NextlogShop,
 } from "../utils/nextlog-excel.server";
 
 // Exportador exclusivo da NextLog. Não carrega o modelo ATT_IMPORT da Trilhos.
@@ -54,7 +52,6 @@ export async function action({ request }: ActionFunctionArgs) {
             name
             email
             phone
-            currentTotalWeight
             currentTotalPriceSet {
               shopMoney {
                 amount
@@ -142,77 +139,33 @@ export async function action({ request }: ActionFunctionArgs) {
       }
     }
 
-    stage = "consulta dos dados do remetente NextLog";
-    const shopResponse = await admin.graphql(`
-      #graphql
-      query SellForgeNextlogSender {
-        shop {
-          name
-          email
-          shopAddress: billingAddress {
-            company
-            address1
-            address2
-            zip
-            city
-            phone
-            countryCodeV2
-          }
-        }
-      }
-    `);
-    const shopJson = (await shopResponse.json()) as {
-      data?: { shop?: NextlogShop | null };
-      errors?: { message?: string }[];
-    };
-    if (shopJson.errors?.length || !shopJson.data?.shop) {
-      return Response.json(
-        { error: "NextLog: não foi possível obter os dados da loja na Shopify." },
-        { status: 502 },
-      );
-    }
-    const shop = shopJson.data.shop;
-    const sender = nextlogSender(shop, license);
-    const missingOrigin = [
-      ["nome do remetente", sender.name],
-      ["morada do remetente", sender.address],
-      ["código postal do remetente", sender.postalCode],
-      ["localidade do remetente", sender.city],
-      ["país do remetente", sender.country],
-    ].filter(([, value]) => !clean(value));
-    if (missingOrigin.length) {
-      return Response.json(
-        { error: `NextLog: faltam ${missingOrigin.map(([field]) => field).join(", ")}. Verifica o remetente guardado para NextLog ou a morada da loja Shopify.` },
-        { status: 422 },
-      );
-    }
-
     stage = "criação do Excel NextLog";
     const workbook = new ExcelJS.Workbook();
     workbook.creator = "SellForge Shipping";
-    workbook.title = "NextLog — MODELO CTT (29 colunas)";
+    workbook.title = "NextLog — MODELO CTT";
     const sheet = workbook.addWorksheet("Listagem");
     NEXTLOG_HEADERS.forEach((header, index) => {
       sheet.getRow(1).getCell(index + 1).value = header;
     });
-    const date = new Date().toISOString().slice(0, 10);
     orders.forEach((order, index) => {
       const row = sheet.getRow(index + 2);
-      buildNextlogRow(order, license, shop, date).forEach((value, column) => {
+      buildNextlogRow(order, license).forEach((value, column) => {
         row.getCell(column + 1).value = value;
       });
-      [4, 7, 9, 10, 11, 13, 16, 18, 19, 20, 21, 28].forEach((column) => {
+      [1, 3, 4, 5, 6, 7, 8, 9, 13, 14].forEach((column) => {
         row.getCell(column).numFmt = "@";
       });
-      row.getCell(23).numFmt = "0.00";
-      row.getCell(25).numFmt = "0.00";
+      row.getCell(2).numFmt = "0.00";
+      [10, 11, 12].forEach((column) => {
+        row.getCell(column).numFmt = "0";
+      });
     });
     const buffer = await workbook.xlsx.writeBuffer();
     return new Response(buffer, {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": 'attachment; filename="SELLFORGE_NEXTLOG_CTT29.xlsx"',
+        "Content-Disposition": 'attachment; filename="SELLFORGE_NEXTLOG_CTT.xlsx"',
         "Cache-Control": "no-store, no-cache, must-revalidate",
       },
     });

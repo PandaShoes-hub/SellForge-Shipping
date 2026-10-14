@@ -344,7 +344,7 @@ export const action = async ({
         return { error: "Os serviços NextLog devem ter entre 1 e 32 caracteres (letras, números, _ ou -)." };
       }
 
-      // As 29 colunas do Excel NextLog são geradas automaticamente.
+      // O Excel NextLog é gerado pelo seu exportador exclusivo.
       // O administrador apenas escolhe os códigos de serviço por país.
       await prisma.license.update({
         where: { id },

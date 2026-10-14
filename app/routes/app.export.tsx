@@ -231,7 +231,7 @@ export default function ExportPage() {
       const link = document.createElement("a");
 
       link.href = url;
-      link.download = carrier === "nextlog" ? "SELLFORGE_NEXTLOG_CTT29.xlsx" : "SELLFORGE_EXPORT.xlsx";
+      link.download = carrier === "nextlog" ? "SELLFORGE_NEXTLOG_CTT.xlsx" : "SELLFORGE_EXPORT.xlsx";
 
       document.body.appendChild(link);
       link.click();

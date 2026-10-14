@@ -76,20 +76,6 @@ const services = {
   nextlogDefaultVolumes: 1,
   nextlogDefaultWeight: 1,
 };
-const shop = {
-  name: "PANDA SHOES",
-  email: "sender@example.test",
-  shopAddress: {
-    company: "PANDA SHOES",
-    address1: "Rua de Teste 10",
-    address2: "Loja 2",
-    zip: "4780-564",
-    city: "Santo Tirso",
-    countryCodeV2: "PT",
-    phone: "+351900000000",
-  },
-};
-
 function order(country = "ES", overrides = {}) {
   return {
     id: `gid://shopify/Order/${country === "PT" ? 2 : 1}`,
@@ -116,9 +102,7 @@ async function exportOrders(carrier, orders, options = {}) {
   state.admin = {
     graphql: async (query) => {
       queries.push(query);
-      return Response.json({ data: query.includes("SellForgeNextlogSender")
-        ? { shop: options.shop ?? shop }
-        : { nodes: orders } });
+      return Response.json({ data: { nodes: orders } });
     },
   };
   const exporter = options.exporter ?? (carrier === "nextlog" ? nextlogAction : action);
@@ -144,84 +128,99 @@ function cells(sheet, row) {
   return Array.from({ length: sheet.columnCount }, (_, index) => sheet.getRow(row).getCell(index + 1).value ?? "");
 }
 
-test("NextLog writes the CTT contract A:AC, with sender name separate from service", async () => {
+test("NextLog writes the confirmed MODELO CTT input contract A:N", async () => {
   const orders = [order("ES"), order("PT")];
   const { response } = await exportOrders("nextlog", orders);
-  assert.match(response.headers.get("Content-Disposition"), /SELLFORGE_NEXTLOG_CTT29.xlsx/);
+  assert.match(response.headers.get("Content-Disposition"), /SELLFORGE_NEXTLOG_CTT.xlsx/);
   const sheet = await worksheet(response);
   assert.equal(sheet.name, "Listagem");
-  assert.equal(sheet.columnCount, 29);
+  assert.equal(sheet.columnCount, 14);
   assert.equal(sheet.rowCount, 3);
   assert.deepEqual(cells(sheet, 1), [
-    "Data", "Hora Início", "Hora Fim", "Código de Serviço", "Nome Destinatário",
-    "Morada Destinatário", "Cód. Postal Destinatário", "Localidade Destinatário",
-    "País Destinatário", "Telefone Destinatário", "E-mail Destinatário",
-    "Pessoa de Contacto", "NIF Destinatário", "Nome Remetente", "Morada Remetente",
-    "Cód. Postal Remetente", "Localidade Remetente", "País Remetente",
-    "Telefone Remetente", "Pessoa Contacto Remetente", "NIF Remetente", "Volumes",
-    "Peso Real", "Km", "Valor Reembolso", "Retorno de Encomenda",
-    "Retorno Guia Assinada", "Referência", "Observações",
+    "REF", "COBRANÇA", "NOME", "MORADA", "CP", "LOCALIDADE", "CONTACTO",
+    "EMAIL", "PAIS", "BACK", "VOLUMES", "PESO", "OBS", "SERVIÇO",
   ]);
-  const date = sheet.getCell("A2").value;
-  assert.match(date, /^\d{4}-\d{2}-\d{2}$/);
   assert.deepEqual(cells(sheet, 2), [
-    date, "", "", "CTT24H", "Cliente de Teste", "Rua de Teste 18 Piso 0 Porta 18",
-    "08001", "Barcelona", "ES", "+34600000000", "recipient@example.test",
-    "Cliente de Teste", "", "PANDA SHOES", "Rua de Teste 10 Loja 2", "4780-564",
-    "Santo Tirso", "PT", "+351900000000", "PANDA SHOES", "", 1, 1.25, "",
-    54.99, 0, 0, "#TEST-ES", "",
+    "#TEST-ES", 54.99, "Cliente de Teste", "Rua de Teste 18 Piso 0 Porta 18",
+    "08001", "Barcelona", "+34600000000", "recipient@example.test", "ES",
+    0, 1, 1, "", "CTT24H",
   ]);
-  assert.equal(sheet.getCell("D3").value, "CTT48H");
-  assert.equal(sheet.getCell("AB3").value, "#TEST-PT");
-  assert.equal(sheet.getCell("G2").type, ExcelJS.ValueType.String);
-  assert.equal(sheet.getCell("G2").numFmt, "@");
-  assert.equal(sheet.getCell("W2").type, ExcelJS.ValueType.Number);
-  assert.equal(sheet.getCell("Y2").type, ExcelJS.ValueType.Number);
+  assert.equal(sheet.getCell("N3").value, "CTT48H");
+  assert.equal(sheet.getCell("A3").value, "#TEST-PT");
+  assert.equal(sheet.getCell("E2").type, ExcelJS.ValueType.String);
+  assert.equal(sheet.getCell("E2").numFmt, "@");
+  assert.equal(sheet.getCell("K2").type, ExcelJS.ValueType.Number);
+  assert.equal(sheet.getCell("L2").type, ExcelJS.ValueType.Number);
+  assert.equal(sheet.getCell("B2").type, ExcelJS.ValueType.Number);
 });
 
-test("NextLog uses the saved default weight and volumes when Shopify has no weight", async () => {
-  const { response } = await exportOrders("nextlog", [order("ES", { currentTotalWeight: 0 })], {
-    settings: { nextlogDefaultWeight: 2.5, nextlogDefaultVolumes: 2 },
+test("NextLog always exports one volume and one kilogram regardless of Shopify or saved defaults", async () => {
+  const { response } = await exportOrders("nextlog", [
+    order("ES", { currentTotalWeight: 1250 }),
+    order("PT", { currentTotalWeight: 90000 }),
+  ], {
+    settings: { nextlogDefaultWeight: 2.5, nextlogDefaultVolumes: 8 },
   });
   const sheet = await worksheet(response);
-  assert.equal(sheet.getCell("V2").value, 2);
-  assert.equal(sheet.getCell("W2").value, 2.5);
+  for (const row of [2, 3]) {
+    assert.equal(sheet.getCell(`K${row}`).value, 1);
+    assert.equal(sheet.getCell(`L${row}`).value, 1);
+  }
 });
 
-test("NextLog keeps a positive fallback for missing or invalid weights and settings", async () => {
-  const orders = [0, null, "invalid", -1].map((weight, index) => order("ES", {
+test("NextLog keeps one volume and one kilogram for missing or invalid old weights and settings", async () => {
+  const orders = [0, null, undefined, "invalid", -1].map((weight, index) => order("ES", {
     id: `gid://shopify/Order/${index + 10}`, currentTotalWeight: weight,
   }));
   const { response } = await exportOrders("nextlog", orders, {
     settings: { nextlogDefaultWeight: 0, nextlogDefaultVolumes: 0 },
   });
   const sheet = await worksheet(response);
-  for (let row = 2; row <= 5; row++) {
-    assert.equal(sheet.getCell(`V${row}`).value, 1);
-    assert.equal(sheet.getCell(`W${row}`).value, 1);
+  for (let row = 2; row <= 6; row++) {
+    assert.equal(sheet.getCell(`K${row}`).value, 1);
+    assert.equal(sheet.getCell(`L${row}`).value, 1);
   }
 });
 
-test("NextLog retains Shopify weight in kilograms even when a default is configured", async () => {
-  const { response } = await exportOrders("nextlog", [order("ES")], {
-    settings: { nextlogDefaultWeight: 3 },
-  });
-  const sheet = await worksheet(response);
-  assert.equal(sheet.getCell("W2").value, 1.25);
-});
-
-test("NextLog uses a complete saved sender without mixing it with Shopify", async () => {
-  const { response } = await exportOrders("nextlog", [order("ES")], { settings: {
-    nextlogSenderName: "Remetente de Teste", nextlogSenderAddress: "Rua do Armazém 1",
+test("NextLog does not query Shopify weight or sender and cannot place the sender in the service column", async () => {
+  const { response, queries } = await exportOrders("nextlog", [order("ES")], { settings: {
+    nextlogSenderName: "PANDA SHOES", nextlogSenderAddress: "Rua do Armazém 1",
     nextlogSenderPostalCode: "4000-001", nextlogSenderCity: "Porto",
     nextlogSenderCountry: "PT", nextlogSenderPhone: "900000001",
     nextlogSenderNif: "000000000",
   } });
   const sheet = await worksheet(response);
-  assert.deepEqual(cells(sheet, 2).slice(13, 21), [
-    "Remetente de Teste", "Rua do Armazém 1", "4000-001", "Porto", "PT",
-    "+351900000001", "Remetente de Teste", "000000000",
-  ]);
+  assert.equal(queries.length, 1);
+  assert.ok(!queries[0].includes("currentTotalWeight"));
+  assert.ok(!queries[0].includes("billingAddress"));
+  assert.ok(!queries[0].includes("SellForgeNextlogSender"));
+  assert.equal(sheet.getCell("N2").value, "CTT24H");
+  assert.equal(sheet.getCell("C2").value, "Cliente de Teste");
+  assert.ok(!cells(sheet, 2).includes("PANDA SHOES"));
+});
+
+test("NextLog keeps recipient name, postal code, email and phone fallback in their portal positions", async () => {
+  const recipient = order("ES");
+  recipient.shippingAddress = {
+    ...recipient.shippingAddress, name: " ", firstName: "Ana", lastName: "Lopez",
+    zip: "'08001", phone: " ",
+  };
+  recipient.phone = "0034600000000";
+  const { response } = await exportOrders("nextlog", [recipient]);
+  const sheet = await worksheet(response);
+  assert.equal(sheet.getCell("C2").value, "Ana Lopez");
+  assert.equal(sheet.getCell("E2").value, "08001");
+  assert.equal(sheet.getCell("G2").value, "+34600000000");
+  assert.equal(sheet.getCell("H2").value, "recipient@example.test");
+  assert.equal(sheet.getCell("I2").value, "ES");
+});
+
+test("NextLog rejects an empty saved service instead of using a Trilhos service", async () => {
+  const { response } = await exportOrders("nextlog", [order("ES")], {
+    settings: { nextlogEsService: " ", trilhosEsService: "TRILHOS_ES_TEST" },
+  });
+  assert.equal(response.status, 422);
+  assert.match((await response.json()).error, /falta configurar o serviço de Espanha/);
 });
 
 test("NextLog rejects missing mandatory recipient fields before downloading", async () => {
@@ -286,8 +285,8 @@ test("NextLog uses only its own services, independently of Trilhos settings", as
     nextlogPtService: "NEXTLOG_PT_TEST", nextlogEsService: "NEXTLOG_ES_TEST",
   } });
   const sheet = await worksheet(response);
-  assert.equal(sheet.getCell("D2").value, "NEXTLOG_ES_TEST");
-  assert.equal(sheet.getCell("D3").value, "NEXTLOG_PT_TEST");
+  assert.equal(sheet.getCell("N2").value, "NEXTLOG_ES_TEST");
+  assert.equal(sheet.getCell("N3").value, "NEXTLOG_PT_TEST");
 });
 
 test("The Trilhos template is byte-identical to its version before NextLog existed", async () => {
@@ -318,5 +317,5 @@ test("Trilhos still exports when NextLog is disabled", async () => {
 test("NextLog still exports when Trilhos is disabled", async () => {
   const { response } = await exportOrders("nextlog", [order("ES")], { settings: { trilhosEnabled: false } });
   const sheet = await worksheet(response);
-  assert.equal(sheet.columnCount, 29);
+  assert.equal(sheet.columnCount, 14);
 });
